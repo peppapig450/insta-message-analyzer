@@ -13,6 +13,7 @@ get_logger : function
 
 """
 
+from pathlib import Path
 import logging
 
 
@@ -45,6 +46,12 @@ def setup_logging(log_level: int = logging.INFO, log_file: str = "insta_analyzer
     """
     # Clear any existing handlers to avoid duplicates
     logging.getLogger().handlers = []
+    
+    # Convert log_file to a Path object
+    log_path = Path(log_file)
+    
+    # Ensure the parent directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Define log format
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
