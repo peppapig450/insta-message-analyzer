@@ -84,12 +84,8 @@ ignore = [
   "D105",
   "D106",
   "D107",
-  "D200",
-  "D205",
   "D212",
-  "D400",
-  "D401",
-  "D415",
+  "D213", # NumPy summary starts on first line
   "E402", # false positives for local imports
   "E501", # line too long
   "TRY003", # external messages in exceptions are too verbose
@@ -106,8 +102,11 @@ fixable = ["ALL"]
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-[tool.ruff.format]
+[tool.ruff.lint.pydocstyle]
+# Specify the docstring convention
+convention = "numpy"
 
+[tool.ruff.format]
 # Like Black, use double quotes for strings.
 quote-style = "double"
 
