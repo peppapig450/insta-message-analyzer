@@ -1,0 +1,24 @@
+[project]
+name = "insta-message-analyzer"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "peppapig450",email = "peppapig450@pm.me"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<=3.13"
+dependencies = [
+    "matplotlib (>=3.10.1,<4.0.0)",
+    "pandas (>=2.2.3,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.15.0"
+ruff = "^0.9.9"
+pandas-stubs = "^2.2.3.241126"
+
