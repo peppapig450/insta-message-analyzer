@@ -9,10 +9,12 @@ import logging
 from pathlib import Path
 
 from insta_message_analyzer.data import MessageLoader, MessagePreprocessor
-from insta_message_analyzer.utils import get_logger, setup_logging
+from insta_message_analyzer.utils import setup_logging
 
-setup_logging(log_level=logging.INFO, log_file="../output/insta_analyzer.log")
-logger = get_logger(__name__)
+# Resolve project root and set up logging
+project_root = Path(__file__).parent.parent.resolve()
+log_path = project_root / "output" / "logs" / "insta_analyzer.log"
+logger = setup_logging(log_level=logging.INFO, log_file=log_path)
 
 def main() -> None:
     """
@@ -21,8 +23,6 @@ def main() -> None:
     This function resolves the project root, sets up input and output directories,
     loads raw message data, processes it into a DataFrame, and saves the result to a CSV file.
     """
-    # Resolve the project root (parent of insta_message_analyzer/) from main.py's location
-    project_root = Path(__file__).parent.parent.resolve()
     root_dir = project_root / "data" / "your_instagram_activity" / "messages"
     output_dir = project_root / "output"
     output_path = output_dir / "messages_raw.csv"

@@ -13,44 +13,51 @@ get_logger : function
 
 """
 
-from pathlib import Path
 import logging
+from pathlib import Path
 
 
-def setup_logging(log_level: int = logging.INFO, log_file: str = "insta_analyzer.log") -> None:
+def setup_logging(
+    logger_name: str = "insta_analyzer",
+    log_level: int = logging.INFO,
+    log_file: str | Path = "insta_analyzer.log"
+) -> logging.Logger:
     """
-    Configure centralized logging for the application.
+    Configure a logger with console and file handlers.
 
-    Sets up the root logger with handlers for both console and file output, using a
-    consistent log format. Existing handlers are cleared to prevent duplication.
+    Sets up a logger with handlers for both console and file output, ensuring the log file's directory exists.
+    Existing handlers are cleared to prevent duplication.
 
     Parameters
     ----------
+    logger_name : str, optional
+        Name of the logger. Default is "insta_analyzer".
     log_level : int, optional
         Logging level (e.g., logging.INFO, logging.DEBUG). Default is logging.INFO.
-    log_file : str, optional
-        Path to the log file. Default is "insta_analyzer.log".
+    log_file : str or Path, optional
+        Path to the log file. Can be relative or absolute. Default is "insta_analyzer.log".
+
+    Returns
+    -------
+    logging.Logger
+        A configured logger instance.
 
     Notes
     -----
     The log format is fixed as "%(asctime)s - %(name)s - %(levelname)s - %(message)s".
-    This function modifies the root logger globally.
-
-    Examples
-    --------
-    >>> import logging
-    >>> setup_logging(log_level=logging.DEBUG, log_file="app.log")
-    >>> logger = logging.getLogger("example")
-    >>> logger.debug("This is a debug message")
 
     """
+    # Get or create the logger
+    logger = logging.getLogger(logger_name)
+
     # Clear any existing handlers to avoid duplicates
-    logging.getLogger().handlers = []
-    
-    # Convert log_file to a Path object
-    log_path = Path(log_file)
-    
-    # Ensure the parent directory exists
+    logger.handlers.clear()
+
+    # Set the logging level
+    logger.setLevel(log_level)
+
+    # Convert log_file to a Path object and ensure the directory exists
+    log_path = Path(log_file).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Define log format
@@ -62,11 +69,14 @@ def setup_logging(log_level: int = logging.INFO, log_file: str = "insta_analyzer
     console_handler.setFormatter(formatter)
 
     # File handler
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
 
-    # Configure root logger
-    logging.basicConfig(level=log_level, handlers=[console_handler, file_handler])
+    # Add handlers to the logger
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+    return logger
 
 
 def get_logger(name: str) -> logging.Logger:
