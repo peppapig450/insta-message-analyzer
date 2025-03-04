@@ -17,6 +17,9 @@ dependencies = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.poetry.scripts]
+analyze = "insta_message_analyzer.__main__:main"
+
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.15.0"
 ruff = "^0.9.9"
@@ -126,7 +129,7 @@ python_version = "3.12"
 strict = true 
 namespace_packages = true
 explicit_package_bases = true
-packages = ["src"]
+packages = ["insta_message_analyzer"]
 warn_no_return = true # Ensure all paths return a value
 warn_unused_configs = true # Catch unused settings
 warn_unused_ignores = true # Highlight unnecessary # type: ignore

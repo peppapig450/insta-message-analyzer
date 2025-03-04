@@ -1,8 +1,7 @@
 import logging
 from pathlib import Path
 
-from core.data_loader import MessageLoader
-from core.logging_config import get_logger, setup_logging
+from insta_message_analyzer.core import MessageLoader, get_logger, setup_logging
 
 setup_logging(log_level=logging.INFO, log_file="../output/insta_analyzer.log")
 logger = get_logger(__name__)
