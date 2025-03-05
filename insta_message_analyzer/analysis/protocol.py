@@ -11,13 +11,16 @@ Notes
 Concrete strategy implementations are imported from submodules (e.g., activity.py).
 """
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Generic, Protocol, TypeVar
 
 import pandas as pd
 
+# Define a generic type variable for the result
+R = TypeVar("R", bound=Mapping) # Constrain to dict-like types (e.g., TypedDict or dict)
 
-class AnalysisStrategy(Protocol):
+class AnalysisStrategy(Protocol, Generic[R]):
     """
     Protocol for analysis strategies on Instagram message data.
 
@@ -40,7 +43,7 @@ class AnalysisStrategy(Protocol):
         """Unique name for the strategy instance."""
         ...
 
-    def analyze(self, data: pd.DataFrame) -> dict:
+    def analyze(self, data: pd.DataFrame) -> R:
         """
         Perform analysis on the provided DataFrame.
 
@@ -51,19 +54,19 @@ class AnalysisStrategy(Protocol):
 
         Returns
         -------
-        dict
+        R
             Results of the analysis, format depends on the strategy.
 
         """
         ...
 
-    def save_results(self, results: dict, output_dir: Path) -> None:
+    def save_results(self, results: R, output_dir: Path) -> None:
         """
         Save analysis results to the specified directory.
 
         Parameters
         ----------
-        results : dict
+        results : R
             Results of the analysis to be saved.
         output_dir : pathlib.Path
             Directory path where results will be saved.

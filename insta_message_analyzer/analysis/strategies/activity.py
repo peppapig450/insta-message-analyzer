@@ -5,10 +5,11 @@ from pathlib import Path
 import pandas as pd
 
 from ...utils.logging import get_logger
+from ..protocol import AnalysisStrategy
 from ..types import ActivityAnalysisResult, TimeSeriesKey
 
 
-class ActivityAnalysis:
+class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
     """Concrete strategy for analyzing temporal activity patterns in Instagram message data.
 
     This strategy computes time-series metrics such as message counts, rolling averages,

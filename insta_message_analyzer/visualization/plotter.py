@@ -4,14 +4,17 @@ Module for plotting time series visualizations of Instagram message data.
 This module provides the `TimeSeriesPlotter` class, which generates plots for temporal
 analysis results, including message counts, rolling averages, day-of-week, and hourly distributions.
 """
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from ..analysis.types import ActivityAnalysisResult, TimeSeriesDict
 from ..utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from ..analysis.types import ActivityAnalysisResult, TimeSeriesDict
 
 class TimeSeriesPlotter:
     """
@@ -35,13 +38,13 @@ class TimeSeriesPlotter:
         Generates and saves all time series plots.
     """
 
-    def __init__(self, pipeline_results: dict[str, dict], output_dir: Path) -> None:
+    def __init__(self, pipeline_results: dict[str, Mapping], output_dir: Path) -> None:
         """
         Initialize the TimeSeriesPlotter.
 
         Parameters
         ----------
-        pipeline_results : dict[str, dict]
+        pipeline_results : dict[str, Mapping]
             Results dictionary from AnalysisPipeline, keyed by strategy names.
         output_dir : Path
             Directory path where plots will be saved.

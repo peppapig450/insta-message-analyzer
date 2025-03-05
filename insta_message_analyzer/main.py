@@ -8,24 +8,27 @@ saving the results to a CSV file.
 import logging
 from pathlib import Path
 
+from insta_message_analyzer.analysis import ActivityAnalysis, AnalysisPipeline
 from insta_message_analyzer.data import MessageLoader, MessagePreprocessor
-from insta_message_analyzer.utils import setup_logging
+from insta_message_analyzer.utils import get_logger, setup_logging
+from insta_message_analyzer.visualization import TimeSeriesPlotter
 
 # Resolve project root and set up logging
 project_root = Path(__file__).parent.parent.resolve()
 log_path = project_root / "output" / "logs" / "insta_analyzer.log"
-logger = setup_logging(log_level=logging.INFO, log_file=log_path)
+setup_logging(log_level=logging.INFO, log_file=log_path)
+logger = get_logger(__name__)
 
 def main() -> None:
     """
-    Main function to load, process, and save Instagram message data.
+    Main function to load, process, analyze, and visualize Instagram message data.
 
     This function resolves the project root, sets up input and output directories,
-    loads raw message data, processes it into a DataFrame, and saves the result to a CSV file.
+    loads raw message data, processes it into a DataFrame, runs analysis strategies,
+    and generates visualizations, saving all results to the output directory.
     """
     root_dir = project_root / "data" / "your_instagram_activity" / "messages"
     output_dir = project_root / "output"
-    output_path = output_dir / "messages_raw.csv"
 
     # Create output directory if it doesn’t exist
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -37,10 +40,23 @@ def main() -> None:
     # Process data
     preprocessor = MessagePreprocessor(raw_data)
     df = preprocessor.get_processed_data
+    raw_messages_out = output_dir / "messages_raw.csv"
+    df.to_csv(raw_messages_out, index=False)
+    logger.info("Saved processed messages to %s", raw_messages_out)
 
-    # Save to CSV
-    df.to_csv(output_path, index=False)
-    logger.info("Saved processed messages to %s", output_path)
+    # Run analysis pipeline
+    strategies = [ActivityAnalysis()]
+    pipeline = AnalysisPipeline(strategies)
+    results = pipeline.run_analysis(df)
+    pipeline.save_results(results, output_dir)
+    logger.info("Saved analysis results to %s", output_dir)
+
+    # Visualize results
+    plotter = TimeSeriesPlotter(results, output_dir)
+    plotter.plot()
+    logger.info("Generated visualizations in %s", output_dir)
+
+
 
 if __name__ == "__main__":
     main()
