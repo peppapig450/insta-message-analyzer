@@ -1,5 +1,6 @@
 """Temporal activity analysis strategy for the Instagram Message Analyzer."""
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -26,7 +27,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
     """
 
     def __init__(
-        self, name: str = "AnalysisAnalysis", rolling_window: int = 7, burst_threshold: float = 0.2
+        self, name: str = "ActivityAnalysis", rolling_window: int = 7, burst_threshold: float = 0.2
     ) -> None:
         """Initialize the ActivityAnalysis strategy.
 
@@ -43,6 +44,9 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         self.rolling_window = rolling_window
         self.burst_threshold = burst_threshold
         self.logger = get_logger(__name__)
+        self.logger.debug("Initialized ActivityAnalysis: name=%s, rolling_window=%d, burst_threshold=%.2f",
+                         name, rolling_window, burst_threshold)
+        self.logger.info("ActivityAnalysis initialized")
 
     @property
     def name(self) -> str:
@@ -80,31 +84,67 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         KeyError
             If 'timestamp' column is missing from the input DataFrame.
         """
+        self.logger.debug("Starting analyze with data shape: %s", data.shape)
         if "timestamp" not in data.columns:
             error_msg = "DataFrame must contain a 'timestamp' column"
             self.logger.error("Missing 'timestamp' column in data: %s", error_msg)
             raise KeyError(error_msg)
 
         df = data.copy()
+        self.logger.debug("Copied input data, initial rows: %d", len(df))
+
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+        self.logger.debug("Converted timestamps, sample: %s", df["timestamp"].head().tolist())
+
+        dropped_rows = len(data) - len(df.dropna(subset=["timestamp"]))
         df = df.dropna(subset=["timestamp"])
-        # TODO: Log dropped rows for transparency (len(data) - len(df))
+        self.logger.debug(
+            "Dropped %d rows with invalid timestamps, remaining rows: %d", dropped_rows, len(df)
+        )
 
         counts = df["timestamp"].dt.floor("D").value_counts().sort_index()
         counts.name = "message_count"
+        self.logger.debug(
+            "Computed daily counts, length: %d, sample: %s", len(counts), counts.head().to_dict()
+        )
+
         # TODO: Add configurable granularity (e.g., "H" for hourly counts)
         rolling_avg = counts.rolling(window=f"{self.rolling_window}D", min_periods=1, closed="both").mean()
         rolling_avg.name = "rolling_avg"
+        self.logger.debug(
+            "Computed rolling average, length: %d, sample: %s",
+            len(rolling_avg),
+            rolling_avg.head().to_dict(),
+        )
+
         # TODO: Consider adaptive or exponential moving average for recent trends
         dow_counts = df["timestamp"].dt.dayofweek.value_counts().sort_index()
         dow_counts.name = "dow_counts"
+        self.logger.debug("Computed day-of-week counts: %s", dow_counts.to_dict())
+
         # TODO: Normalize by number of days per weekday for fair comparison
         hour_counts = df["timestamp"].dt.hour.value_counts().sort_index()
         hour_counts.name = "hour_counts"
+        self.logger.debug("Computed hour-of-day counts: %s", hour_counts.to_dict())
+
         # TODO: Add hourly counts per day for heatmap potential
         z_scores = (counts - counts.mean()) / counts.std()
+        self.logger.debug(
+            "Computed z-scores, mean: %.2f, std: %.2f, sample: %s",
+            counts.mean(),
+            counts.std(),
+            z_scores.head().to_dict(),
+        )
+
         burst_mask = z_scores > self.burst_threshold  # TODO: Fix default threshold (0.2 -> 2.0)
         bursts = counts[burst_mask].to_frame(name="burst_count")
+        self.logger.debug(
+            "Detected %d bursts with threshold %.2f, sample: %s",
+            len(bursts),
+            self.burst_threshold,
+            bursts.head().to_dict(),
+        )
+
         # TODO: Explore percentile-based or hourly burst detection
 
         results: ActivityAnalysisResult = {
@@ -117,6 +157,12 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             "bursts": bursts,
             "total_messages": len(df),
         }
+        self.logger.debug(
+            "Analysis results prepared: total_messages=%d, time_series_keys=%s, bursts_rows=%d",
+            results["total_messages"],
+            list(results["time_series"].keys()),
+            len(results["bursts"]),
+        )
         self.logger.info("Completed temporal analysis for %s messages", results["total_messages"])
         return results
 

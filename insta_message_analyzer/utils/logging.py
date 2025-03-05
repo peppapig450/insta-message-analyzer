@@ -22,8 +22,8 @@ from typing import Literal
 
 # Default logging configuration
 DEFAULT_LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-DEFAULT_LOGGER_NAME: str = "insta_analyzer"
-DEFAULT_LOG_FILE: Path = Path("insta_analyzer.log")
+DEFAULT_LOGGER_NAME: str = "insta_message_analyzer"
+DEFAULT_LOG_FILE: Path = Path("insta_message_analyzer.log")
 DEFAULT_CONSOLE_LEVEL: int = logging.INFO
 DEFAULT_FILE_LEVEL: int = logging.DEBUG
 
@@ -44,13 +44,13 @@ def setup_logging(
     Parameters
     ----------
     logger_name : str, optional
-        Name of the logger. Default is "insta_analyzer".
+        Name of the logger. Default is "insta_message_analyzer".
     console_level : int, optional
         Logging level for console output (e.g., logging.INFO). Default is INFO.
     file_level : int, optional
         Logging level for file output (e.g., logging.DEBUG). Default is DEBUG.
     log_file : str | Path, optional
-        Path to the log file. Default is "insta_analyzer.log".
+        Path to the log file. Default is "insta_message_analyzer.log".
     log_format : str, optional
         Format string for log messages. Default is "%(asctime)s - %(name)s - %(levelname)s - %(message)s".
 
@@ -91,6 +91,8 @@ def setup_logging(
             logging.getLevelName(console_level),
             logging.getLevelName(file_level),
         )
+    else:
+        logger.debug("Logger %s already has handlers: %s", logger_name, logger.handlers)
 
 
 def get_logger(name: str, level: int | Literal["NOTSET"] = logging.NOTSET) -> logging.Logger:
