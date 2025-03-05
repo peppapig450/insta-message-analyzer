@@ -16,7 +16,7 @@ from insta_message_analyzer.visualization import TimeSeriesPlotter
 # Resolve project root and set up logging
 project_root = Path(__file__).parent.parent.resolve()
 log_path = project_root / "output" / "logs" / "insta_analyzer.log"
-setup_logging(log_level=logging.INFO, log_file=log_path)
+setup_logging(console_level=logging.INFO, file_level=logging.DEBUG, log_file=log_path)
 logger = get_logger(__name__)
 
 def main() -> None:
