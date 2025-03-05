@@ -12,7 +12,7 @@ Concrete strategy implementations are imported from submodules (e.g., activity.p
 """
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 import pandas as pd
 
@@ -40,7 +40,7 @@ class AnalysisStrategy(Protocol):
         """Unique name for the strategy instance."""
         ...
 
-    def analyze(self, data: pd.DataFrame) -> Any:
+    def analyze(self, data: pd.DataFrame) -> dict:
         """
         Perform analysis on the provided DataFrame.
 
@@ -51,19 +51,19 @@ class AnalysisStrategy(Protocol):
 
         Returns
         -------
-        Any
+        dict
             Results of the analysis, format depends on the strategy.
 
         """
         ...
 
-    def save_results(self, results: Any, output_dir: Path) -> None:
+    def save_results(self, results: dict, output_dir: Path) -> None:
         """
         Save analysis results to the specified directory.
 
         Parameters
         ----------
-        results : Any
+        results : dict
             Results of the analysis to be saved.
         output_dir : pathlib.Path
             Directory path where results will be saved.

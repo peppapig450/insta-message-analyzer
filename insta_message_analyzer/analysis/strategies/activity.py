@@ -1,27 +1,11 @@
 """Temporal activity analysis strategy for the Instagram Message Analyzer."""
 
 from pathlib import Path
-from typing import Literal, TypedDict
 
 import pandas as pd
 
 from ...utils.logging import get_logger
-
-
-class TimeSeriesDict(TypedDict):
-    counts: pd.Series
-    rolling_avg: pd.Series
-    dow_counts: pd.Series
-    hour_counts: pd.Series
-
-
-class ActivityAnalysisResult(TypedDict):
-    time_series: TimeSeriesDict
-    bursts: pd.DataFrame
-    total_messages: int
-
-
-type TimeSeriesKey = Literal["counts", "rolling_avg", "dow_counts", "hour_counts"]
+from ..types import ActivityAnalysisResult, TimeSeriesKey
 
 
 class ActivityAnalysis:
@@ -142,7 +126,7 @@ class ActivityAnalysis:
 
         Parameters
         ----------
-        results : AnalysisResult
+        results : ActivityAnalysisResult
             Results of the analysis, expected to match the structure returned by analyze().
         output_dir : pathlib.Path
             Directory path where results will be saved.

@@ -45,7 +45,7 @@ class AnalysisPipeline:
         self.strategies = strategies
         self.logger = get_logger(__name__)
 
-    def run_analysis(self, data: pd.DataFrame) -> dict[str, Any]:
+    def run_analysis(self, data: pd.DataFrame) -> dict[str, dict]:
         """
         Run all strategies on the provided data and return aggregated results.
 
@@ -56,36 +56,36 @@ class AnalysisPipeline:
 
         Returns
         -------
-        dict
-        Dictionary with strategy names as keys and their analysis results as values.
-        Failed strategies return None.
+        dict[str, dict]
+            Dictionary with strategy names as keys and their analysis results as values.
+            Failed strategies return None.
 
         Notes
         -----
         Errors are logged, and the pipeline continues with remaining strategies.
 
         """
-        results: dict[str, Any] = {}
+        results: dict[str, dict] = {}
         for strategy in self.strategies:
             self.logger.info("Running analysis for %s", strategy.name)
             try:
                 results[strategy.name] = strategy.analyze(data)
             except Exception:
                 self.logger.exception("Error in %s", strategy.name)
-                results[strategy.name] = None
+                results[strategy.name] = {}
         self.logger.info("Completed analysis pipeline with %d strategies", len(self.strategies))
         return results
 
-    def save_results(self, results: dict[str, Any], output_dir: Path) -> None:
+    def save_results(self, results: dict[str, dict], output_dir: Path) -> None:
         """
         Save all analysis results to the specified directory.
 
         Parameters
         ----------
-        results : dict
-        Dictionary of analysis results keyed by strategy names.
+        results : dict[str, dict]
+            Dictionary of analysis results keyed by strategy names.
         output_dir : pathlib.Path
-        Directory path where results will be saved.
+            Directory path where results will be saved.
 
         Notes
         -----
