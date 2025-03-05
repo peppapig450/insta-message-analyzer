@@ -15,7 +15,7 @@ class TimeSeriesDict(TypedDict):
     hour_counts: pd.Series
 
 
-class AnalysisResult(TypedDict):
+class ActivityAnalysisResult(TypedDict):
     time_series: TimeSeriesDict
     bursts: pd.DataFrame
     total_messages: int
@@ -70,7 +70,7 @@ class ActivityAnalysis:
         """
         return self._name
 
-    def analyze(self, data: pd.DataFrame) -> AnalysisResult:
+    def analyze(self, data: pd.DataFrame) -> ActivityAnalysisResult:
         """Analyze temporal activity patterns in the provided Instagram message data.
 
         Computes daily message counts, rolling averages, day-of-week and hour-of-day
@@ -122,7 +122,7 @@ class ActivityAnalysis:
         bursts = counts[burst_mask].to_frame(name="burst_count")
         # TODO: Explore percentile-based or hourly burst detection
 
-        results: AnalysisResult = {
+        results: ActivityAnalysisResult = {
             "time_series": {
                 "counts": counts,
                 "rolling_avg": rolling_avg,
@@ -135,7 +135,7 @@ class ActivityAnalysis:
         self.logger.info("Completed temporal analysis for %s messages", results["total_messages"])
         return results
 
-    def save_results(self, results: AnalysisResult, output_dir: Path) -> None:
+    def save_results(self, results: ActivityAnalysisResult, output_dir: Path) -> None:
         """Save temporal activity analysis results to the specified directory.
 
         Saves time-series metrics and burst data as separate CSV files.
