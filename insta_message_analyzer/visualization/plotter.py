@@ -4,7 +4,8 @@ Module for plotting time series visualizations of Instagram message data.
 This module provides the `TimeSeriesPlotter` class, which generates plots for temporal
 analysis results, including message counts, rolling averages, day-of-week, and hourly distributions.
 """
-from collections.abc import Mapping
+from __future__ import annotations
+
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,7 +15,10 @@ import pandas as pd
 from ..utils.logging import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ..analysis.types import ActivityAnalysisResult, TimeSeriesDict
+
 
 class TimeSeriesPlotter:
     """
@@ -55,7 +59,8 @@ class TimeSeriesPlotter:
         self.logger = get_logger(__name__)
 
     def plot(self) -> None:
-        """Generate and save all time series plots.
+        """
+        Generate and save all time series plots.
 
         This method creates plots for message counts, rolling averages, day-of-week,
         and hourly distributions from ActivityAnalysis results, saving them as PNG files.
@@ -64,13 +69,14 @@ class TimeSeriesPlotter:
         -----
         Expects 'ActivityAnalysis' key in pipeline_results to conform to ActivityAnalysisResult.
         """
-        # TODO: figure out how to properly type this. Type guard?
-        # Expect ActivityAnalysisResult, but pipeline might return {} for failure
-        activity_results: ActivityAnalysisResult = self.pipeline_results.get("ActivityAnalysis", {}) # type: ignore[assignment]
+        # Extract and validate ActivityAnalysis results
+        # TODO: look into using TypeGuard here too verify type is ActivityAnalysisResult
+        activity_results: ActivityAnalysisResult = self.pipeline_results.get("ActivityAnalysis", {})  # type: ignore[assignment]
         if not isinstance(activity_results, dict):
-            self.logger.warning("ActivityAnalyis result is not a dict; skipping plotting")
+            self.logger.warning("ActivityAnalysis result is not a dict; skipping plotting")
             return
 
+        # Default empty time series data
         default_ts: TimeSeriesDict = {
             "counts": pd.Series(dtype="int64"),
             "rolling_avg": pd.Series(dtype="float64"),
@@ -82,8 +88,14 @@ class TimeSeriesPlotter:
             self.logger.warning("No time series results available for plotting")
             return
 
-        # TODO: plot by user?
-        # Plot message counts and rolling average
+        # Generate individual plots
+        self._plot_message_frequency(ts_results)
+        self._plot_day_of_week(ts_results)
+        self._plot_hour_of_day(ts_results)
+        self._plot_bursts(activity_results)
+
+    def _plot_message_frequency(self, ts_results: TimeSeriesDict) -> None:
+        """Plot message counts and rolling average."""
         if "counts" in ts_results and "rolling_avg" in ts_results:
             plt.figure(figsize=(12, 6))
             ts_results["counts"].plot(label="Message Count")
@@ -92,7 +104,6 @@ class TimeSeriesPlotter:
             plt.xlabel("Time")
             plt.ylabel("Messages")
             plt.legend()
-
             message_freq_plot = self.output_dir / "message_frequency.png"
             plt.savefig(message_freq_plot)
             plt.close()
@@ -100,14 +111,14 @@ class TimeSeriesPlotter:
         else:
             self.logger.warning("Missing 'counts' or 'rolling_avg' in time_series; skipping frequency plot")
 
-        # Plot day-of-week distribution
+    def _plot_day_of_week(self, ts_results: TimeSeriesDict) -> None:
+        """Plot day-of-week distribution."""
         if "dow_counts" in ts_results:
             plt.figure(figsize=(8, 5))
-            ts_results["dow_counts"].plot(king="bar")
+            ts_results["dow_counts"].plot(kind="bar")  # Fixed typo: 'king' -> 'kind'
             plt.title("Messages by Day of Week")
             plt.xlabel("Day (0=Mon, 6=Sun)")
             plt.ylabel("Messages")
-
             dow_count_bar = self.output_dir / "dow_counts.png"
             plt.savefig(dow_count_bar)
             plt.close()
@@ -115,20 +126,23 @@ class TimeSeriesPlotter:
         else:
             self.logger.warning("Missing 'dow_counts' in time_series; skipping day-of-week plot")
 
-        # Plot hour-of-day distribution
+    def _plot_hour_of_day(self, ts_results: TimeSeriesDict) -> None:
+        """Plot hour-of-day distribution."""
         if "hour_counts" in ts_results:
             plt.figure(figsize=(10, 5))
             ts_results["hour_counts"].plot(kind="bar")
             plt.title("Messages by Hour of Day")
             plt.xlabel("Hour (0-23)")
             plt.ylabel("Messages")
-
             hour_count_bar = self.output_dir / "hour_counts.png"
+            plt.savefig(hour_count_bar)  # Fixed: Save before close
             plt.close()
             self.logger.info("Saved hour-of-day plot to %s", hour_count_bar)
         else:
             self.logger.warning("Missing 'hour_counts' in time_series; skipping hour-of-day plot")
 
+    def _plot_bursts(self, activity_results: ActivityAnalysisResult) -> None:
+        """Plot message bursts over time."""
         bursts = activity_results.get("bursts", pd.DataFrame())
         if not bursts.empty and "burst_count" in bursts.columns:
             plt.figure(figsize=(12, 6))
@@ -137,7 +151,6 @@ class TimeSeriesPlotter:
             plt.xlabel("Time")
             plt.ylabel("Messages")
             plt.legend()
-
             bursts_plot = self.output_dir / "bursts.png"
             plt.savefig(bursts_plot)
             plt.close()
