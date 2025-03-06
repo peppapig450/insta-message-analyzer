@@ -61,8 +61,8 @@ def main() -> None:
             logger.warning("Processed DataFrame is empty; analysis will produce no results")
         if "timestamp" not in df.columns:
             logger.error("Processed DataFrame lacks 'timestamp' column; analysis will fail")
-    except Exception as e:
-        logger.exception("Failed to preprocess data: %s", str(e))
+    except Exception:
+        logger.exception("Failed to preprocess data: %s")
         raise
 
     raw_messages_out = output_dir / "messages_raw.csv"
@@ -83,8 +83,8 @@ def main() -> None:
         )
         pipeline.save_results(results, output_dir)
         logger.info("Saved analysis results to %s", output_dir)
-    except Exception as e:
-        logger.exception("Analysis pipeline failed: %s", e)
+    except Exception:
+        logger.exception("Analysis pipeline failed: %s")
         raise
 
     logger.debug("Generating visualizations")
@@ -92,8 +92,8 @@ def main() -> None:
         plotter = TimeSeriesPlotter(results, output_dir)
         plotter.plot()
         logger.info("Generated visualizations in %s", output_dir)
-    except Exception as e:
-        logger.exception("Visualization failed: %s", e)
+    except Exception:
+        logger.exception("Visualization failed: %s")
         raise
 
 
