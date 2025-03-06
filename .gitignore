@@ -172,5 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-data/
 output/
+
+# Ignore the top-level data directory
+/data/
+
+# But DO NOT ignore the insta_message_analyzer/data directory
+!/insta_message_analyzer/data/
