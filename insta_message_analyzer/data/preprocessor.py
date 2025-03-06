@@ -24,12 +24,12 @@ class MessagePreprocessor:
     Attributes
     ----------
     raw_data : dict
-        Dictionary of raw JSON data, keyed by chat ID, with values as lists of JSON data.
+        Dictionary keyed by chat ID (int), with values as {'data': list of JSON, 'chat_name': str}.
     logger : logging.Logger
         Logger instance for logging messages and errors.
     messages_df : pd.DataFrame
         DataFrame containing processed message data with columns:
-        ['chat_id', 'sender', 'timestamp', 'content', 'chat_type'].
+        ['chat_id', 'chat_name', 'sender', 'timestamp', 'content', 'chat_type'].
 
     Methods
     -------
@@ -55,12 +55,13 @@ class MessagePreprocessor:
         Parameters
         ----------
         raw_data : dict
-            Dictionary keyed by chat ID, with values as {'data': list of JSON, 'chat_name': str}.
+            Dictionary keyed by chat ID (int), with values as {'data': list of JSON, 'chat_name': str}.
 
         """
         self.raw_data = raw_data  # NOTE: TypedDict maybe?
         self.logger = get_logger(__name__)
         self.messages_df = pd.DataFrame()
+        self.logger.debug("Initialized MessagePreprocessor with raw_data keys: %s", list(raw_data.keys()))
         self.process_data()
 
     def is_group_chat(self, chat_data: list[dict]) -> bool:
@@ -79,6 +80,7 @@ class MessagePreprocessor:
 
         """
         unique_senders: set[str] = set()
+        self.logger.debug("Checking if chat is group, data length: %d", len(chat_data))
 
         for data in chat_data:
             # Check for "joinable_mode" - a definitive group chat indicator
@@ -150,13 +152,18 @@ class MessagePreprocessor:
                                 "chat_type": chat_type,
                             }
                         )
+                        self.logger.debug("Added message from %s in chat %s", sender, chat_id)
 
         if not messages:
             self.logger.warning("No valid messages found")
 
         # NOTE: in future .from_records provides better performance over 100k+ rows
         self.messages_df = pd.DataFrame(messages)
-        self.logger.info("Processed %d messages into DataFrame", len(self.messages_df))
+        self.logger.info(
+            "Processed %d messages into DataFrame, columns: %s",
+            len(self.messages_df),
+            self.messages_df.columns.tolist(),
+        )
 
     @property
     def get_processed_data(self) -> pd.DataFrame:
