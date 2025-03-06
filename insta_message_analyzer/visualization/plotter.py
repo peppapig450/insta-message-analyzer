@@ -4,14 +4,17 @@ Module for plotting time series visualizations of Instagram message data.
 This module provides the `TimeSeriesPlotter` class, which generates plots for temporal
 analysis results, including message counts, rolling averages, day-of-week, and hourly distributions.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from ..analysis.types import ChatId
 from ..utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -57,6 +60,7 @@ class TimeSeriesPlotter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logger = get_logger(__name__)
+        self.logger.debug("Initialized TimeSeriesPlotter, output_dir: %s", output_dir)
 
     def plot(self) -> None:
         """
@@ -82,13 +86,15 @@ class TimeSeriesPlotter:
             "rolling_avg": pd.Series(dtype="float64"),
             "dow_counts": pd.Series(dtype="int64"),
             "hour_counts": pd.Series(dtype="int64"),
+            "hourly_per_day": pd.DataFrame(),
         }
         ts_results: TimeSeriesDict = activity_results.get("time_series", default_ts)
         if not ts_results["counts"].any():
-            self.logger.warning("No time series results available for plotting")
+            self.logger.warning("No time series results available for plotting; skipping plotting")
             return
 
         # Generate individual plots
+        self.logger.debug("Starting plot generation")
         self._plot_message_frequency(ts_results)
         self._plot_day_of_week(ts_results)
         self._plot_hour_of_day(ts_results)
@@ -141,19 +147,208 @@ class TimeSeriesPlotter:
         else:
             self.logger.warning("Missing 'hour_counts' in time_series; skipping hour-of-day plot")
 
-    def _plot_bursts(self, activity_results: ActivityAnalysisResult) -> None:
-        """Plot message bursts over time."""
-        bursts = activity_results.get("bursts", pd.DataFrame())
-        if not bursts.empty and "burst_count" in bursts.columns:
-            plt.figure(figsize=(12, 6))
-            bursts["burst_count"].plot(label="Bursts", color="red")
-            plt.title("Message Bursts Over Time")
-            plt.xlabel("Time")
-            plt.ylabel("Messages")
-            plt.legend()
-            bursts_plot = self.output_dir / "bursts.png"
-            plt.savefig(bursts_plot)
+    def _plot_hourly_per_day(self, ts_results: TimeSeriesDict) -> None:
+        """
+        Plot heatmap of hourly message counts per day.
+
+        Parameters
+        ----------
+        ts_results : TimeSeriesDict
+            Time series metrics to plot.
+        """
+        if "hourly_per_day" in ts_results and not ts_results["hourly_per_day"].empty:
+            self.logger.debug("Plotting hourly per day, shape: %s", ts_results["hourly_per_day"].shape)
+            plt.figure(figsize=(12, 8))
+            plt.imshow(ts_results["hourly_per_day"], aspect="auto", cmap="viridis")
+            plt.colorbar(label="Message Count")
+            plt.title("Hourly Messages Per Day")
+            plt.xlabel("Hour (0-23)")
+            plt.ylabel("Date")
+            plt.xticks(range(24))
+            plt.yticks(
+                range(len(ts_results["hourly_per_day"])),
+                ts_results["hourly_per_day"].index.astype(str).tolist(),
+            )
+            plt.savefig(self.output_dir / "hourly_per_day.png")
             plt.close()
-            self.logger.info("Saved bursts plot to %s", bursts_plot)
-        else:
-            self.logger.warning("No valid bursts data; skipping bursts plot")
+            self.logger.info("Saved hourly per day heatmap")
+
+    def _plot_bursts(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Plot message frequency with burst periods highlighted.
+
+        Parameters
+        ----------
+        activity_results : ActivityAnalysisResult
+            Full analysis results.
+        """
+        ts_results = activity_results.get("time_series", {})
+        bursts = activity_results.get("bursts", pd.DataFrame())
+        if "counts" in ts_results and not bursts.empty:
+            self.logger.debug("Plotting bursts, burst rows: %d", len(bursts))
+            plt.figure(figsize=(12, 6))
+            ax = ts_results["counts"].plot(label="Messages")
+            for idx in bursts.index:
+                # Note: Wrap date2num with a Typed Wrapper also works
+                ax.axvline(
+                    x=float(mdates.date2num(idx).item()), # type: ignore[no-untyped-call]
+                    color="red",
+                    linestyle="--",
+                    alpha=0.5,
+                    label="Burst" if idx == bursts.index[0] else None,
+                )
+            plt.title("Message Frequency with Bursts")
+            plt.xlabel("Date")
+            plt.ylabel("Message Count")
+            plt.legend()
+            plt.savefig(self.output_dir / "bursts.png")
+            plt.close()
+            self.logger.info("Saved bursts plot")
+
+    def _plot_top_senders_per_chat(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Plot bar charts of top senders for each chat.
+
+        Parameters
+        ----------
+        activity_results : ActivityAnalysisResult
+            Full analysis results including chat names.
+        """
+        top_senders = activity_results.get("top_senders_per_chat", {})
+        chat_names = activity_results.get("chat_names", {})
+        if not top_senders:
+            self.logger.warning("No top senders per chat data; skipping plot")
+            return
+        for chat_id, senders in top_senders.items():
+            chat_name = chat_names.get(chat_id, f"Chat {chat_id}")
+            self.logger.debug(
+                "Plotting top senders for chat %d (%s), senders: %s", chat_id, chat_name, senders.to_dict()
+            )
+            plt.figure(figsize=(10, 6))
+            senders.plot(kind="bar", color="coral")
+            plt.title(f"Top Senders in {chat_name}")
+            plt.xlabel("Sender")
+            plt.ylabel("Message Count")
+            plt.xticks(rotation=45, ha="right")
+            plt.tight_layout()
+            plt.savefig(self.output_dir / f"top_senders_chat_{chat_id}.png")
+            plt.close()
+            self.logger.info("Saved top senders plot for %s", chat_name)
+
+    def _plot_active_hours_heatmap(self, active_hours: dict[str, pd.Series]) -> None:
+        """
+        Plot a heatmap of normalized active hours per user.
+
+        Parameters
+        ----------
+        active_hours : dict[str, pd.Series]
+            Normalized hourly message distribution per user.
+        """
+        if not active_hours:
+            self.logger.warning("No active hours data; skipping heatmap")
+            return
+        df = pd.DataFrame(active_hours).T.fillna(0)
+        self.logger.debug("Plotting active hours heatmap, shape: %s", df.shape)
+        plt.figure(figsize=(12, max(8, len(df) * 0.3)))
+        plt.imshow(df, aspect="auto", cmap="viridis")
+        plt.colorbar(label="Message Proportion")
+        plt.title("Normalized Active Hours per User")
+        plt.xlabel("Hour of Day (0-23)")
+        plt.ylabel("User")
+        plt.xticks(range(24))
+        plt.yticks(range(len(df)), df.index.astype(str).tolist())
+        plt.tight_layout()
+        plt.savefig(self.output_dir / "active_hours_heatmap.png")
+        plt.close()
+        self.logger.info("Saved active hours heatmap")
+
+    def _plot_top_senders_day(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Plot heatmap of top senders per day.
+
+        Parameters
+        ----------
+        activity_results : ActivityAnalysisResult
+            Full analysis results.
+        """
+        top_senders = activity_results.get("top_senders_day", pd.DataFrame())
+        if not top_senders.empty:
+            self.logger.debug("Plotting top senders day, shape: %s", top_senders.shape)
+            plt.figure(figsize=(12, 8))
+            plt.imshow(top_senders, aspect="auto", cmap="YlOrRd")
+            plt.colorbar(label="Message Count")
+            plt.title("Top Senders Per Day")
+            plt.xlabel("Sender")
+            plt.ylabel("Date")
+            plt.xticks(
+                range(len(top_senders.columns)),
+                top_senders.columns.astype(str).tolist(),
+                rotation=45,
+                ha="right",
+            )
+            date_labels = top_senders.index.astype(str).tolist()
+            plt.yticks(range(len(date_labels)), date_labels)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / "top_senders_day.png")
+            plt.close()
+            self.logger.info("Saved top senders day plot")
+
+    def _plot_top_senders_week(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Plot heatmap of top senders per week.
+
+        Parameters
+        ----------
+        activity_results : ActivityAnalysisResult
+            Full analysis results.
+        """
+        top_senders = activity_results.get("top_senders_week", pd.DataFrame())
+        if not top_senders.empty:
+            self.logger.debug("Plotting top senders week, shape: %s", top_senders.shape)
+            plt.figure(figsize=(12, 8))
+            plt.imshow(top_senders, aspect="auto", cmap="YlOrRd")
+            plt.colorbar(label="Message Count")
+            plt.title("Top Senders Per Week")
+            plt.xlabel("Sender")
+            plt.ylabel("Week Start")
+            plt.xticks(
+                range(len(top_senders.columns)),
+                top_senders.columns.astype(str).tolist(),
+                rotation=45,
+                ha="right",
+            )
+            week_labels = top_senders.index.astype(str).tolist()
+            plt.yticks(range(len(week_labels)), week_labels)
+            plt.tight_layout()
+            plt.savefig(self.output_dir / "top_senders_week.png")
+            plt.close()
+            self.logger.info("Saved top senders week plot")
+
+    def _plot_chat_lifecycles(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Plot chat lifecycle durations with chat names.
+
+        Parameters
+        ----------
+        activity_results : ActivityAnalysisResult
+            Full analysis results including chat names.
+        """
+        lifecycles = activity_results.get("chat_lifecycles", {})
+        chat_names = activity_results.get("chat_names", {})
+        if not lifecycles:
+            self.logger.warning("No chat lifecycles data; skipping plot")
+            return
+        df = pd.DataFrame(lifecycles).T
+        durations = (df["last_message"] - df["first_message"]).dt.total_seconds() / (24 * 3600)  # Days
+        labels = [f"{chat_names.get(ChatId(i), i)}" for i in df.index]
+        self.logger.debug("Plotting chat lifecycles, chats: %d", len(df))
+        plt.figure(figsize=(12, 6))
+        durations.plot(kind="bar")
+        plt.title("Chat Lifecycle Durations")
+        plt.xlabel("Chat")
+        plt.ylabel("Duration (Days)")
+        plt.xticks(range(len(labels)), labels, rotation=45, ha="right")
+        plt.tight_layout()
+        plt.savefig(self.output_dir / "chat_lifecycles.png")
+        plt.close()
+        self.logger.info("Saved chat lifecycles plot")
