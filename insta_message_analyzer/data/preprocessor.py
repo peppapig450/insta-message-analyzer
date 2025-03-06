@@ -152,7 +152,6 @@ class MessagePreprocessor:
                                 "chat_type": chat_type,
                             }
                         )
-                        self.logger.debug("Added message from %s in chat %s", sender, chat_id)
 
         if not messages:
             self.logger.warning("No valid messages found")
