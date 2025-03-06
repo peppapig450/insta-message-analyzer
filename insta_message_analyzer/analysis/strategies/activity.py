@@ -170,7 +170,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             }
 
             # Top senders per chat
-            top_senders = group["senders"].value_counts().head(self.top_n_senders)
+            top_senders = group["sender"].value_counts().head(self.top_n_senders)
             top_senders_per_chat[chat_id_int] = top_senders
             self.logger.debug(
                 "Analyzed chat %d (%s): messages=%d, avg_response_time=%.2f s, top_senders=%s",
