@@ -110,3 +110,46 @@ def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult
     if not isinstance(obj["chat_names"], dict) or not all(isinstance(k, int) for k in obj["chat_names"]):
         return False
     return all(isinstance(v, str) for v in obj["chat_names"].values())
+
+
+def is_time_series_dict(obj: object) -> TypeGuard[TimeSeriesDict]:
+    """
+    Type guard to verify if an object conforms to the TimeSeriesDict structure.
+
+    Validates that the input object is a dictionary with the required keys and correct
+    types as specified in TimeSeriesDict. This is useful for type narrowing in static
+    type checkers and runtime validation within plotting or analysis code.
+
+    Parameters
+    ----------
+    obj : object
+        The object to validate against the TimeSeriesDict type.
+
+    Returns
+    -------
+    bool
+        True if the object fully conforms to the TimeSeriesDict structure, False otherwise.
+
+    Notes
+    -----
+    - Checks for presence of all required keys: 'counts', 'rolling_avg', 'dow_counts',
+      'hour_counts', and 'hourly_per_day'.
+    - Validates that values are of the correct type (Series or DataFrame).
+    - Does not check data content (e.g., emptiness or index validity), focusing on structure.
+    """
+    if not isinstance(obj, dict):
+        return False
+
+    # Define required keys from TimeSeriesDict
+    required_keys = set(TimeSeriesDict.__annotations__.keys())
+    if not required_keys.issubset(obj.keys()):
+        return False
+
+    # Validate types for each key
+    return (
+        isinstance(obj["counts"], pd.Series)
+        and isinstance(obj["rolling_avg"], pd.Series)
+        and isinstance(obj["dow_counts"], pd.Series)
+        and isinstance(obj["hour_counts"], pd.Series)
+        and isinstance(obj["hourly_per_day"], pd.DataFrame)
+    )
