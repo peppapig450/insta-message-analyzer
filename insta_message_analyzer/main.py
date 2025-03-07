@@ -56,6 +56,7 @@ def main() -> None:
     try:
         preprocessor = MessagePreprocessor(raw_data)
         df = preprocessor.get_processed_data
+        df = df[df["chat_type"] == "group"]
         logger.debug("Processed data shape: %s, columns: %s", df.shape, df.columns.tolist())
         if df.empty:
             logger.warning("Processed DataFrame is empty; analysis will produce no results")
