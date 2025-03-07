@@ -10,9 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import emoji
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
+from matplotlib import rcParams
 
 from ..analysis.types import ChatId
 from ..utils.logging import get_logger
@@ -99,6 +102,12 @@ class TimeSeriesPlotter:
         self._plot_day_of_week(ts_results)
         self._plot_hour_of_day(ts_results)
         self._plot_bursts(activity_results)
+        self._plot_top_senders_per_chat(activity_results)
+        self._plot_active_hours_heatmap(activity_results.get("active_hours_per_user", {}))
+        self._plot_top_senders_day(activity_results)
+        self._plot_top_senders_week(activity_results)
+        self._plot_chat_lifecycles(activity_results)
+        self.logger.info("Generated visualizations in %s", self.output_dir)
 
     def _plot_message_frequency(self, ts_results: TimeSeriesDict) -> None:
         """Plot message counts and rolling average."""
@@ -191,7 +200,7 @@ class TimeSeriesPlotter:
             for idx in bursts.index:
                 # Note: Wrap date2num with a Typed Wrapper also works
                 ax.axvline(
-                    x=float(mdates.date2num(idx).item()), # type: ignore[no-untyped-call]
+                    x=float(mdates.date2num(idx).item()),  # type: ignore[no-untyped-call]
                     color="red",
                     linestyle="--",
                     alpha=0.5,
@@ -244,22 +253,44 @@ class TimeSeriesPlotter:
         active_hours : dict[str, pd.Series]
             Normalized hourly message distribution per user.
         """
-        if not active_hours:
-            self.logger.warning("No active hours data; skipping heatmap")
-            return
-        df = pd.DataFrame(active_hours).T.fillna(0)
-        self.logger.debug("Plotting active hours heatmap, shape: %s", df.shape)
-        plt.figure(figsize=(12, max(8, len(df) * 0.3)))
-        plt.imshow(df, aspect="auto", cmap="viridis")
-        plt.colorbar(label="Message Proportion")
-        plt.title("Normalized Active Hours per User")
-        plt.xlabel("Hour of Day (0-23)")
+        # Store original setting and disable math parsing
+        original_parse_math = rcParams["text.parse_math"]
+        rcParams["text.parse_math"] = False
+
+        # Convert to DataFrame and transpose for heatmap
+        active_hours_df = pd.DataFrame(active_hours).T
+        active_hours_df.index.name = "User"
+        active_hours_df.columns.name = "Hour"
+
+        # Sanitize labels: remove emojis and escape '$'
+        def sanitize_label(text: str) -> str:
+            return emoji.replace_emoji(text, replace="").replace("$", "")
+
+        sanitized_labels = [sanitize_label(label) for label in active_hours_df.index]
+
+        # Set figure size dynamically
+        n_users = len(active_hours_df)
+        plt.figure(figsize=(12, max(8, n_users * 0.2)))
+
+        # Create heatmap
+        ax = sns.heatmap(active_hours_df, cmap="YlGnBu", cbar_kws={"label": "Normalized Activity"})
+
+        # Set escaped labels on the y-axis
+        ax.set_yticks(range(n_users))
+        ax.set_yticklabels(sanitized_labels, rotation=0, fontsize=8)
+
+        # Add titles and labels
+        plt.title("Active Hours per User")
+        plt.xlabel("Hour of Day")
         plt.ylabel("User")
-        plt.xticks(range(24))
-        plt.yticks(range(len(df)), df.index.astype(str).tolist())
         plt.tight_layout()
+
+        # Save and close
         plt.savefig(self.output_dir / "active_hours_heatmap.png")
         plt.close()
+
+        # Restore original setting
+        rcParams["text.parse_math"] = original_parse_math
         self.logger.info("Saved active hours heatmap")
 
     def _plot_top_senders_day(self, activity_results: ActivityAnalysisResult) -> None:
@@ -338,7 +369,17 @@ class TimeSeriesPlotter:
         if not lifecycles:
             self.logger.warning("No chat lifecycles data; skipping plot")
             return
+
         df = pd.DataFrame(lifecycles).T
+
+        # Ensure datetime type
+        df["first_message"] = pd.to_datetime(df["first_message"], errors="coerce")
+        df["last_message"] = pd.to_datetime(df["last_message"], errors="coerce")
+        df = df.dropna(subset=["first_message", "last_message"])
+        if df.empty:
+            self.logger.warning("No valid chat lifecycle data after datetime conversion; skipping plot")
+            return
+
         durations = (df["last_message"] - df["first_message"]).dt.total_seconds() / (24 * 3600)  # Days
         labels = [f"{chat_names.get(ChatId(i), i)}" for i in df.index]
         self.logger.debug("Plotting chat lifecycles, chats: %d", len(df))
