@@ -6,6 +6,7 @@ dependencies = [
   "matplotlib (>=3.10.1,<4.0.0)",
   "pandas (>=2.2.3,<3.0.0)",
   "seaborn (>=0.13.2,<0.14.0)",
+  "emoji (>=2.14.1,<3.0.0)",
 ]
 description = ""
 name = "insta-message-analyzer"
