@@ -258,7 +258,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
 
         dow_counts = df["timestamp"].dt.dayofweek.value_counts().sort_index()
         num_days = (df["timestamp"].max() - df["timestamp"].min()).days + 1
-        dow_counts = dow_counts / (num_days / 7)
+        dow_counts = (dow_counts / (num_days / 7)).round(0).astype(int)
         dow_counts.name = "dow_counts_avg"
 
         hour_counts = df["timestamp"].dt.hour.value_counts().sort_index()

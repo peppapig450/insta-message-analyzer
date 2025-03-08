@@ -14,6 +14,7 @@ import emoji
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 from matplotlib import rcParams
@@ -46,12 +47,14 @@ class TimeSeriesPlotter:
         Logger instance for logging messages and errors.
     theme : str
         Visual theme for plots (either 'light' or 'dark').
-    color_scheme : dict
-        Color palette for different visualization elements.
     width : int
         Default width for plots in pixels.
     height : int
         Default height for plots in pixels.
+    plotly_template : str
+        Plotly template based on theme ('plotly_white' for light, 'plotly_dark' for dark).
+    color_scheme : dict
+        Color palette for visualization elements, dependent on the selected theme.
     """
 
     def __init__(
@@ -87,6 +90,7 @@ class TimeSeriesPlotter:
         self.theme = theme
         self.width = width
         self.height = height
+        self.plotly_template = "plotly_white" if theme == "light" else "plotly_dark"
 
         # Define color schemes based on theme
         if theme == "dark":
@@ -147,13 +151,6 @@ class TimeSeriesPlotter:
             self._plot_message_frequency(ts_results)
             self._plot_day_of_week(ts_results)
             self._plot_hour_of_day(ts_results)
-            self._plot_hourly_per_day(ts_results)
-            self._plot_bursts(activity_results)
-            self._plot_top_senders_per_chat(activity_results)
-            self._plot_active_hours_heatmap(activity_results.get("active_hours_per_user", {}))
-            self._plot_top_senders_day(activity_results)
-            self._plot_top_senders_week(activity_results)
-            self._plot_chat_lifecycles(activity_results)
 
             self.logger.info("Generated visualizations in %s", self.output_dir)
         except Exception:
@@ -177,7 +174,7 @@ class TimeSeriesPlotter:
                 "x": 0.5,  # Center the title
                 "xanchor": "center",
             },
-            template="plotly_white" if self.theme == "light" else "plotly_dark",
+            template=self.plotly_template,
             paper_bgcolor=self.color_scheme["paper_bgcolor"],
             plot_bgcolor=self.color_scheme["background"],
             font={"color": self.color_scheme["font_color"]},
@@ -348,34 +345,135 @@ class TimeSeriesPlotter:
             self.logger.exception("Error plotting interactive message frequency")
 
     def _plot_day_of_week(self, ts_results: TimeSeriesDict) -> None:
-        """Plot day-of-week distribution."""
-        if "dow_counts" in ts_results:
-            plt.figure(figsize=(8, 5))
-            ts_results["dow_counts"].plot(kind="bar")  # Fixed typo: 'king' -> 'kind'
-            plt.title("Messages by Day of Week")
-            plt.xlabel("Day (0=Mon, 6=Sun)")
-            plt.ylabel("Messages")
-            dow_count_bar = self.output_dir / "dow_counts.png"
-            plt.savefig(dow_count_bar)
-            plt.close()
-            self.logger.info("Saved day-of-week plot to %s", dow_count_bar)
-        else:
-            self.logger.warning("Missing 'dow_counts' in time_series; skipping day-of-week plot")
+        """
+        Plot interactive day-of-week distribution with hover information.
+
+        Parameters
+        ----------
+        ts_results : TimeSeriesDict
+            Time series metrics to plot.
+        """
+        if ts_results["dow_counts"].empty:
+            self.logger.warning("Empty 'dow_counts'; skipping day-of-week plot")
+            return
+
+        try:
+            # Map numerical day values to day names
+            day_names: tuple[str, ...] = (
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            )
+            dow_counts = ts_results["dow_counts"].copy()
+
+            if len(dow_counts) == 7:  # Only rename if we have exactly 7 days  # noqa: PLR2004
+                dow_counts.index = pd.Index(day_names)
+            else:
+                self.logger.warning("'dow_counts' does not have an index of length 7; skipping renaming.")
+
+            # Convert to DataFrame for Plotly Express
+            dow_df = dow_counts.to_frame(name="Messages").reset_index(names=["Day"])
+
+            # Create bar chart
+            fig = px.bar(
+                data_frame=dow_df,
+                x="Day",
+                y="Messages",
+                color="Messages",
+                color_continuous_scale=self.color_scheme["colorscale_sequential"],
+                text="Messages",
+                labels={"Messages": "Message Count"},
+                template=self.plotly_template,
+            )
+
+            # Customize text display format
+            fig.update_traces(
+                texttemplate="%{text:,}",
+                textposition="outside",
+                hovertemplate=("<b>%{x}</b><br>Messages: %{y:,}<br><extra></extra>"),
+            )
+
+            # Enchanced layout
+            fig.update_layout(
+                coloraxis_showscale=False,  # Hide the color scale
+                xaxis_title="Day of Week",
+                yaxis_title="Message Count",
+            )
+
+            # Apply common layout
+            self._apply_common_layout(fig, "Messages by Day of Week")
+
+            # Save the figure
+            self._save_figure(fig, "dow_counts.html", "interactive day-of-week plot")
+        except Exception:
+            self.logger.exception("Error plotting interactive day of week")
 
     def _plot_hour_of_day(self, ts_results: TimeSeriesDict) -> None:
-        """Plot hour-of-day distribution."""
-        if "hour_counts" in ts_results:
-            plt.figure(figsize=(10, 5))
-            ts_results["hour_counts"].plot(kind="bar")
-            plt.title("Messages by Hour of Day")
-            plt.xlabel("Hour (0-23)")
-            plt.ylabel("Messages")
-            hour_count_bar = self.output_dir / "hour_counts.png"
-            plt.savefig(hour_count_bar)  # Fixed: Save before close
-            plt.close()
-            self.logger.info("Saved hour-of-day plot to %s", hour_count_bar)
-        else:
-            self.logger.warning("Missing 'hour_counts' in time_series; skipping hour-of-day plot")
+        """
+        Plot interactive hour-of-day distribution.
+
+        Parameters
+        ----------
+        ts_results : TimeSeriesDict
+            Time series metrics to plot.
+        """
+        if ts_results["hour_counts"].empty:
+            self.logger.warning("Empty 'hour_counts'; skipping hour-of-day plot")
+            return
+
+        try:
+            # Convert hour counts to DataFrame for Plotly Express
+            hour_df = ts_results["hour_counts"].to_frame(name="Messages").reset_index(names=["Hour"])
+
+            # Note: Later when optimizing, chain above with .assign(HourLabel=lambda x: x["Hour"].map("{:02d}:00"))
+            # Add formatted hour labels
+            def _format_hour(hour: int) -> str:
+                """Format an hour as a two-digit string with ':00' appended."""
+                return f"{hour:02d}:00"
+
+            hour_df["HourLabel"] = hour_df["Hour"].astype(int).apply(_format_hour)
+
+            # Create bar chart
+            fig = px.bar(
+                data_frame=hour_df,
+                x="HourLabel",
+                y="Messages",
+                text="Messages",
+                labels={"HourLabel": "Hour of Day", "Messages": "Message Count"},
+                template=self.plotly_template,
+            )
+
+            # Customize text display format
+            fig.update_traces(
+                texttemplate="%{text:,}",
+                textposition="outside",
+                hovertemplate=("<b>%{x}</b><br>Messages: %{y:,}<br><extra></extra>"),
+            )
+
+            # Enhanced layout
+            fig.update_layout(
+                xaxis_title="Hour of Day",
+                yaxis_title="Message Count",
+                xaxis={
+                    "tickmode": "array",
+                    "tickvals": hour_df["HourLabel"].tolist(),
+                    "ticktext": hour_df["HourLabel"].tolist(),
+                    "tickangle": 45,
+                },
+            )
+
+            # Apply common layout settings
+            self._apply_common_layout(fig, "Messages by Hour of Day")
+
+            # Save the figure
+            self._save_figure(fig, "hour_counts.html", "interactive hour-of-day plot")
+
+        except Exception:
+            self.logger.exception("Error plotting interactive hour of day")
 
     def _plot_hourly_per_day(self, ts_results: TimeSeriesDict) -> None:
         """
