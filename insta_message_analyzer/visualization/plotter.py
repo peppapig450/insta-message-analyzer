@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import seaborn as sns
 from matplotlib import rcParams
+from plotly.subplots import make_subplots
 
 from ..analysis.types import ChatId
 from ..analysis.validation import is_activity_analysis_result, is_time_series_dict
@@ -258,21 +259,93 @@ class TimeSeriesPlotter:
             return output_path
 
     def _plot_message_frequency(self, ts_results: TimeSeriesDict) -> None:
-        """Plot message counts and rolling average."""
-        if "counts" in ts_results and "rolling_avg" in ts_results:
-            plt.figure(figsize=(12, 6))
-            ts_results["counts"].plot(label="Message Count")
-            ts_results["rolling_avg"].plot(label="7-day Rolling Avg", linestyle="--")
-            plt.title("Message Frequency Over Time")
-            plt.xlabel("Time")
-            plt.ylabel("Messages")
-            plt.legend()
-            message_freq_plot = self.output_dir / "message_frequency.png"
-            plt.savefig(message_freq_plot)
-            plt.close()
-            self.logger.info("Saved message frequency plot to %s", message_freq_plot)
-        else:
-            self.logger.warning("Missing 'counts' or 'rolling_avg' in time_series; skipping frequency plot")
+        """
+        Plot interactive message counts and rolling average.
+
+        Parameters
+        ----------
+        ts_results : TimeSeriesDict
+            Time series metrics to plot
+        """
+        if ts_results["counts"].empty or ts_results["rolling_avg"].empty:
+            self.logger.warning("Empty 'counts' or 'rolling_avg'; skipping frequency plot")
+            return
+
+        try:
+            # Create figure with two y-axes for better comparison
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+            # Add bar chart for daily message counts
+            fig.add_trace(
+                go.Bar(
+                    x=ts_results["counts"].index,
+                    y=ts_results["counts"].to_numpy(),
+                    name="Daily Messages",
+                    marker_color=self.color_scheme["primary"],
+                    opacity=0.7,
+                    hovertemplate=(
+                        "<b>Date</b>: %{x|%Y-%m-%d}<br><b>Messages</b>: %{y:,}<br><extra></extra>"
+                    ),
+                ),
+                secondary_y=False,
+            )
+
+            # Add line for rolling average
+            fig.add_trace(
+                go.Scatter(
+                    x=ts_results["rolling_avg"].index,
+                    y=ts_results["rolling_avg"].to_numpy(),
+                    name="7-Day Average",
+                    line={"color": self.color_scheme["secondary"], "width": 3},
+                    hovertemplate=(
+                        "<b>Date</b>: %{x|%Y-%m-%d}<br><b>7-Day Avg</b>: %{y:.1f}<br><extra></extra>"
+                    ),
+                ),
+                secondary_y=True,
+            )
+
+            # Add range slider and selector buttons for time navigation
+            fig.update_layout(
+                xaxis={
+                    # Range selector buttons configuration
+                    "rangeselector": {
+                        "buttons": [
+                            # 1 week backward
+                            {"count": 7, "label": "1w", "step": "day", "stepmode": "backward"},
+                            # 1 month backward
+                            {"count": 1, "label": "1m", "step": "month", "stepmode": "backward"},
+                            # 3 months backward
+                            {"count": 3, "label": "3m", "step": "month", "stepmode": "backward"},
+                            # 6 months backward
+                            {"count": 6, "label": "6m", "step": "month", "stepmode": "backward"},
+                            # 1 year backward
+                            {"count": 1, "label": "1y", "step": "year", "stepmode": "backward"},
+                            # Show all data
+                            {"step": "all"},
+                        ],
+                        # Styling
+                        "bgcolor": self.color_scheme["paper_bgcolor"],
+                        "activecolor": self.color_scheme["primary"],
+                    },
+                    # Range slider configuration
+                    "rangeslider": {"visible": True},
+                    # Set axis type
+                    "type": "date",
+                }
+            )
+
+            # Set axis titles
+            fig.update_yaxes(title_text="Daily Message Count", secondary_y=False, showgrid=True)
+            fig.update_yaxes(title_text="7-day Rolling Average", secondary_y=True, showgrid=False)
+            fig.update_xaxes(title_text="Date")
+
+            # Apply common layout settings
+            self._apply_common_layout(fig, "Message Frequency Over Time")
+
+            # Save the interactive plot
+            self._save_figure(fig, "message_frequency.html", "interactive message frequency plot")
+        except Exception:
+            self.logger.exception("Error plotting interactive message frequency")
 
     def _plot_day_of_week(self, ts_results: TimeSeriesDict) -> None:
         """Plot day-of-week distribution."""
