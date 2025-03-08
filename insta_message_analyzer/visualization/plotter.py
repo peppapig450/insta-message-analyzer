@@ -14,10 +14,12 @@ import emoji
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
+import plotly.graph_objects as go
 import seaborn as sns
 from matplotlib import rcParams
 
 from ..analysis.types import ChatId
+from ..analysis.validation import is_activity_analysis_result, is_time_series_dict
 from ..utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -28,10 +30,10 @@ if TYPE_CHECKING:
 
 class TimeSeriesPlotter:
     """
-    Generates time series visualizations from activity analysis results.
+    Generates interactive time series visualizations from activity analysis results.
 
-    This class creates plots for temporal analysis metrics from an AnalysisPipeline,
-    focusing on ActivityAnalysis results, saving them as PNG files.
+    This class creates interactive Plotly plots for temporal analysis metrics
+    from an AnalysisPipeline, focusing on ActivityAnalysis results, saving them as HTML files.
 
     Attributes
     ----------
@@ -41,14 +43,24 @@ class TimeSeriesPlotter:
         Directory path where plots will be saved.
     logger : logging.Logger
         Logger instance for logging messages and errors.
-
-    Methods
-    -------
-    plot()
-        Generates and saves all time series plots.
+    theme : str
+        Visual theme for plots (either 'light' or 'dark').
+    color_scheme : dict
+        Color palette for different visualization elements.
+    width : int
+        Default width for plots in pixels.
+    height : int
+        Default height for plots in pixels.
     """
 
-    def __init__(self, pipeline_results: dict[str, Mapping], output_dir: Path) -> None:
+    def __init__(
+        self,
+        pipeline_results: dict[str, Mapping],
+        output_dir: Path,
+        theme: str = "dark",
+        width: int = 900,
+        height: int = 600,
+    ) -> None:
         """
         Initialize the TimeSeriesPlotter.
 
@@ -58,56 +70,192 @@ class TimeSeriesPlotter:
             Results dictionary from AnalysisPipeline, keyed by strategy names.
         output_dir : Path
             Directory path where plots will be saved.
+        theme : str, optional
+            Visual theme for plots, either 'light' or 'dark'. Default is 'dark'.
+        width : int, optional
+            Default width for plots in pixels. Default is 900.
+        height : int, optional
+            Default height for plots in pixels. Default is 600.
         """
         self.pipeline_results = pipeline_results
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logger = get_logger(__name__)
-        self.logger.debug("Initialized TimeSeriesPlotter, output_dir: %s", output_dir)
+
+        # Configuration for plots
+        self.theme = theme
+        self.width = width
+        self.height = height
+
+        # Define color schemes based on theme
+        if theme == "dark":
+            self.color_scheme = {
+                "background": "#1e1e1e",
+                "paper_bgcolor": "#2d2d2d",
+                "font_color": "#ffffff",
+                "grid_color": "rgba(255, 255, 255, 0.1)",
+                "primary": "#5dadec",  # Blue
+                "secondary": "#ff6b6b",  # Red
+                "accent": "#ffd700",  # Gold
+                "colorscale_sequential": "Viridis",
+                "colorscale_diverging": "RdBu",
+            }
+        else:  # Light theme
+            self.color_scheme = {
+                "background": "#ffffff",
+                "paper_bgcolor": "#f8f9fa",
+                "font_color": "#333333",
+                "grid_color": "rgba(0, 0, 0, 0.1)",
+                "primary": "#1f77b4",  # Blue
+                "secondary": "#d62728",  # Red
+                "accent": "#ff7f0e",  # Orange
+                "colorscale_sequential": "Blues",
+                "colorscale_diverging": "RdBu",
+            }
+
+        self.logger.debug("Initialized TimeSeriesPlotter, output_dir: %s, theme: %s", output_dir, theme)
 
     def plot(self) -> None:
         """
-        Generate and save all time series plots.
+        Generate and save all time series plots as interactive HTML files.
 
-        This method creates plots for message counts, rolling averages, day-of-week,
-        and hourly distributions from ActivityAnalysis results, saving them as PNG files.
+        Validates the 'ActivityAnalysis' results using `is_activity_analysis_result` and generates
+        plots if data is valid. Skips plotting with an error log if validation fails.
 
         Notes
         -----
-        Expects 'ActivityAnalysis' key in pipeline_results to conform to ActivityAnalysisResult.
+            - Requires 'ActivityAnalysis' key in pipeline_results.
+            - Saves plots as HTML files in output_dir for interactivity.
         """
         # Extract and validate ActivityAnalysis results
-        # TODO: look into using TypeGuard here too verify type is ActivityAnalysisResult
-        activity_results: ActivityAnalysisResult = self.pipeline_results.get("ActivityAnalysis", {})  # type: ignore[assignment]
-        if not isinstance(activity_results, dict):
+        activity_results = self.pipeline_results.get("ActivityAnalysis", {})
+
+        if not is_activity_analysis_result(activity_results):
             self.logger.warning("ActivityAnalysis result is not a dict; skipping plotting")
             return
 
-        # Default empty time series data
-        default_ts: TimeSeriesDict = {
-            "counts": pd.Series(dtype="int64"),
-            "rolling_avg": pd.Series(dtype="float64"),
-            "dow_counts": pd.Series(dtype="int64"),
-            "hour_counts": pd.Series(dtype="int64"),
-            "hourly_per_day": pd.DataFrame(),
-        }
-        ts_results: TimeSeriesDict = activity_results.get("time_series", default_ts)
-        if not ts_results["counts"].any():
-            self.logger.warning("No time series results available for plotting; skipping plotting")
+        # Extract and validate time series data
+        ts_results = activity_results.get("time_series", {})
+        if not is_time_series_dict(ts_results):
+            self.logger.warning("Invalid TimeSeriesDict structure in time_series; skipping plotting")
             return
 
         # Generate individual plots
         self.logger.debug("Starting plot generation")
-        self._plot_message_frequency(ts_results)
-        self._plot_day_of_week(ts_results)
-        self._plot_hour_of_day(ts_results)
-        self._plot_bursts(activity_results)
-        self._plot_top_senders_per_chat(activity_results)
-        self._plot_active_hours_heatmap(activity_results.get("active_hours_per_user", {}))
-        self._plot_top_senders_day(activity_results)
-        self._plot_top_senders_week(activity_results)
-        self._plot_chat_lifecycles(activity_results)
-        self.logger.info("Generated visualizations in %s", self.output_dir)
+        try:
+            self._plot_message_frequency(ts_results)
+            self._plot_day_of_week(ts_results)
+            self._plot_hour_of_day(ts_results)
+            self._plot_hourly_per_day(ts_results)
+            self._plot_bursts(activity_results)
+            self._plot_top_senders_per_chat(activity_results)
+            self._plot_active_hours_heatmap(activity_results.get("active_hours_per_user", {}))
+            self._plot_top_senders_day(activity_results)
+            self._plot_top_senders_week(activity_results)
+            self._plot_chat_lifecycles(activity_results)
+
+            self.logger.info("Generated visualizations in %s", self.output_dir)
+        except Exception:
+            self.logger.exception("Error generating plots")
+
+    def _apply_common_layout(self, fig: go.Figure, title: str) -> None:
+        """
+        Apply common layout settings to a Plotly figure.
+
+        Parameters
+        ----------
+        fig : go.Figure
+            The Plotly figure to modify.
+        title : str
+            Title for the plot.
+        """
+        fig.update_layout(
+            title={
+                "text": title,
+                "font": {"size": 24, "color": self.color_scheme["font_color"]},
+                "x": 0.5,  # Center the title
+                "xanchor": "center",
+            },
+            template="plotly_white" if self.theme == "light" else "plotly_dark",
+            paper_bgcolor=self.color_scheme["paper_bgcolor"],
+            plot_bgcolor=self.color_scheme["background"],
+            font={"color": self.color_scheme["font_color"]},
+            width=self.width,
+            height=self.height,
+            margin={"l": 80, "r": 30, "t": 100, "b": 80},
+            xaxis={
+                "gridcolor": self.color_scheme["grid_color"],
+                "linecolor": self.color_scheme["grid_color"],
+            },
+            yaxis={
+                "gridcolor": self.color_scheme["grid_color"],
+                "linecolor": self.color_scheme["grid_color"],
+            },
+            hovermode="closest",
+        )
+
+        # Add subtle watermark
+        value = int(0.5 * 255)  # 127
+        color = f"rgba({value},{value},{value},{value})"
+        fig.add_annotation(
+            text="Generated with TimeSeriesPlotter",
+            xref="paper",
+            yref="paper",
+            x=0.98,
+            y=0.01,
+            showarrow=False,
+            font={"size": 8, "color": color},
+        )
+
+    def _save_figure(self, fig: go.Figure, filename: str, title: str = "Plot") -> Path | None:
+        """
+        Save the plotly figure as an HTML file and handle exceptions.
+
+        Parameters
+        ----------
+        fig : go.Figure
+            The plotly figure to save
+        filename : str
+            Filename to save the plot to
+        title : str
+            Description of the plot for logging
+
+        Returns
+        -------
+        Path | None
+            Path to the saved file or None if saving failed
+        """
+        output_path = self.output_dir / filename
+        try:
+            # Add configuration options for the interactive plot
+            config = {
+                "scrollZoom": True,
+                "displayModeBar": True,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displaylogo": False,
+                "toImageButtonOptions": {
+                    "format": "png",
+                    "filename": filename.replace(".html", ""),
+                    "height": self.height,
+                    "width": self.width,
+                    "scale": 2,  # Higher resolution for exports
+                },
+            }
+
+            fig.write_html(
+                output_path,
+                include_plotlyjs="cdn",  # Use CDN to reduce file size
+                config=config,
+                include_mathjax="cdn",
+                full_html=True,
+            )
+
+            self.logger.info("Saved %s to %s", title, output_path)
+        except Exception:
+            self.logger.exception("Faild to save %s", title)
+            return None
+        else:
+            return output_path
 
     def _plot_message_frequency(self, ts_results: TimeSeriesDict) -> None:
         """Plot message counts and rolling average."""
