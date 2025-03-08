@@ -151,6 +151,7 @@ class TimeSeriesPlotter:
             self._plot_message_frequency(ts_results)
             self._plot_day_of_week(ts_results)
             self._plot_hour_of_day(ts_results)
+            self._plot_hourly_per_day(ts_results)
 
             self.logger.info("Generated visualizations in %s", self.output_dir)
         except Exception:
@@ -477,29 +478,85 @@ class TimeSeriesPlotter:
 
     def _plot_hourly_per_day(self, ts_results: TimeSeriesDict) -> None:
         """
-        Plot heatmap of hourly message counts per day.
+        Plot interactive heatmap of hourly message counts per day.
 
         Parameters
         ----------
         ts_results : TimeSeriesDict
             Time series metrics to plot.
         """
-        if "hourly_per_day" in ts_results and not ts_results["hourly_per_day"].empty:
-            self.logger.debug("Plotting hourly per day, shape: %s", ts_results["hourly_per_day"].shape)
-            plt.figure(figsize=(12, 8))
-            plt.imshow(ts_results["hourly_per_day"], aspect="auto", cmap="viridis")
-            plt.colorbar(label="Message Count")
-            plt.title("Hourly Messages Per Day")
-            plt.xlabel("Hour (0-23)")
-            plt.ylabel("Date")
-            plt.xticks(range(24))
-            plt.yticks(
-                range(len(ts_results["hourly_per_day"])),
-                ts_results["hourly_per_day"].index.astype(str).tolist(),
+        if ts_results["hourly_per_day"].empty:
+            self.logger.debug("Empty 'hourly_per_day'; skipping hourly per day plot")
+            return
+
+        try:
+            hourly_df = ts_results["hourly_per_day"]
+
+            # Convert DataFrame to format suitable for Plotly
+            hourly_data: list[dict[str, str | int]] = []
+            for date_idx, row in hourly_df.iterrows():
+                if isinstance(date_idx, pd.Timestamp) and pd.notna(date_idx):
+                    date_str = date_idx.strftime("%Y-%m-%d")
+                else:
+                    date_str = "Unknown"  # Fallback for NaT or non-Timestamp
+                    self.logger.debug(
+                        "Non-datetime index after coercion: %s", date_idx
+                    )  # Note: maybe try pd.Timestamp in future versions?
+
+                for hour, count in enumerate(row):
+                    hourly_data.append(
+                        {
+                            "Date": date_str,
+                            "Hour": f"{hour:02d}:00",
+                            "Count": int(count) if pd.notna(count) else 0,
+                            "HourNum": hour,
+                        }
+                    )
+
+            hourly_plot_df = pd.DataFrame(hourly_data)
+
+            # Create heatmap
+            fig = px.density_heatmap(
+                data_frame=hourly_plot_df,
+                x="Hour",
+                y="Date",
+                z="Count",
+                labels={"Count": "Message Count"},
+                color_continuous_scale=self.color_scheme["colorscale_sequential"],
+                template=self.plotly_template,
             )
-            plt.savefig(self.output_dir / "hourly_per_day.png")
-            plt.close()
-            self.logger.info("Saved hourly per day heatmap")
+
+            # Customize hover information
+            fig.update_traces(
+                hovertemplate=(
+                    "<b>Date</b>: %{y}<br><b>Hour</b>: %{x}<br><b>Messages</b>: %{z}<br><extra></extra>"
+                ),
+                # Note: customdata if we still want HourNum explicitly
+                # customdata=hourly_plot_df["HourNum"].values.reshape(-1, 1),  # noqa: ERA001
+            )
+
+            # Set custom tick labels for hours
+            fig.update_layout(
+                xaxis={
+                    "tickmode": "array",
+                    "tickvals": list(range(24)),
+                    "ticktext": [f"{h:02d}:00" for h in range(24)],
+                    "tickangle": 45,
+                    "title": "Hour of Day",
+                },
+                yaxis={
+                    "title": "Date",
+                    "autorange": "reversed",  # Most recent dates at the top
+                },
+            )
+
+            # Apply common layout
+            self._apply_common_layout(fig, "Hourly Messages Per Day")
+
+            # Save the figure
+            self._save_figure(fig, "hourly_per_day.html", "interactive hourly per day heatmap")
+        except Exception:
+            self.logger.exception("Error plotting interactive hourly per day")
 
     def _plot_bursts(self, activity_results: ActivityAnalysisResult) -> None:
         """

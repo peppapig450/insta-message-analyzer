@@ -267,6 +267,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         hourly_per_day = df.assign(date=df["timestamp"].dt.date, hour=df["timestamp"].dt.hour).pivot_table(
             index="date", columns="hour", values="timestamp", aggfunc="count", fill_value=0
         )
+        hourly_per_day.index = pd.to_datetime(hourly_per_day.index, errors="raise")
         hourly_per_day.index.name = "date"
         hourly_per_day.columns.name = "hour"
         self.logger.debug("Hourly per day shape: %s", hourly_per_day.shape)
