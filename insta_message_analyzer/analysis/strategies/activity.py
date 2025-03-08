@@ -26,8 +26,8 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         Unique name identifier for this strategy instance.
     rolling_window : int
         Window size (in days) for computing the rolling average, by default 7.
-    burst_threshold : float
-        Threshold (z-score) for detecting message bursts, by default 2.0.
+    burst_percentile : float
+        Percentile threshold for detecting message bursts, by default 95.0.
     granularity : str
         Time granularity for counts (e.g., "D" for day, "H" for hour).
     top_n_senders : int
@@ -38,11 +38,11 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         Logger for debugging and info messages.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         name: str = "ActivityAnalysis",
         rolling_window: int = 7,
-        burst_threshold: float = 2.0,
+        burst_percentile: float = 95.0,
         granularity: str = "D",
         top_n_senders: int = 5,
         analyze_overall: bool = True,
@@ -55,8 +55,8 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             Unique name for this strategy instance (default: "ActivityAnalysis").
         rolling_window : int, optional
             Window size in days for rolling average (default: 7).
-        burst_threshold : float, optional
-            Z-score threshold for burst detection (default: 2.0).
+        burst_percentile : float, optional
+            Percentile threshold for detecting message bursts, by default 95.0.
         granularity : str, optional
             Time granularity for counts (default: "D").
         top_n_senders : int, optional
@@ -66,16 +66,16 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         """
         self._name = name
         self.rolling_window = rolling_window
-        self.burst_threshold = burst_threshold
+        self.burst_percentile = burst_percentile
         self.granularity = granularity
         self.top_n_senders = top_n_senders
         self.analyze_overall = analyze_overall
         self.logger = get_logger(__name__)
         self.logger.debug(
-            "Initialized %s: rolling_window=%d, burst_threshold=%.2f, granularity=%s, top_n_senders=%d, analyze_overall=%s",
+            "Initialized %s: rolling_window=%d, burst_percentile=%.2f, granularity=%s, top_n_senders=%d, analyze_overall=%s",
             name,
             rolling_window,
-            burst_threshold,
+            burst_percentile,
             granularity,
             top_n_senders,
             analyze_overall,
@@ -138,7 +138,9 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             self._compute_time_series(df) if self.analyze_overall else self._empty_time_series()
         )
         overall_bursts = (
-            self._compute_bursts(overall_time_series["counts"]) if self.analyze_overall else pd.DataFrame()
+            self._compute_bursts(overall_time_series["counts"], self.granularity)
+            if self.analyze_overall
+            else pd.DataFrame()
         )
         total_messages = len(df)
 
@@ -155,7 +157,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             chat_names[chat_id_int] = group["chat_name"].iloc[0]  # Assume consistent chat_name within group
             chat_ts = self._compute_time_series(group)
             per_chat[chat_id_int] = chat_ts
-            per_chat_bursts[chat_id_int] = self._compute_bursts(chat_ts["counts"])
+            per_chat_bursts[chat_id_int] = self._compute_bursts(chat_ts["counts"], self.granularity)
 
             # Chat lifecycle
             timestamps = group["timestamp"].sort_values()
@@ -281,29 +283,87 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         }
         return result
 
-    def _compute_bursts(self, counts: pd.Series) -> pd.DataFrame:
+    def _compute_bursts(self, counts: pd.Series[int], granularity: str) -> pd.DataFrame:
         """
-        Compute message bursts from a counts Series.
+        Compute message burst periods from a counts Series using percentile thresholds.
+
+        Identifies continuous periods where message counts exceed a percentile threshold,
+        grouping consecutive periods into bursts. For hourly granularity, uses hour-specific
+        percentiles; otherwise, uses an overall percentile. Returns a DataFrame with start/end
+        times and total message counts for each burst period.
 
         Parameters
         ----------
         counts : pd.Series
-            Series of message counts with datetime index.
+            Series of message counts with a datetime index (e.g., daily or hourly counts).
+        granularity : str
+            Time granularity of the counts (e.g., "D" for day, "H" for hour).
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with burst counts.
+            DataFrame with columns 'start' (datetime), 'end' (datetime), and 'message_count' (int),
+            where each row represents a burst period. Empty if no bursts are detected.
+
+        Notes
+        -----
+        - Uses self.burst_percentile (e.g., 95.0) to determine burst significance.
+        - For granularity "H", applies hour-specific percentiles to account for daily patterns.
+        - Gaps greater than the specified granularity (e.g., >1 day for "D", >1 hour for "H")
+        separate bursts.
         """
         if counts.empty:
             self.logger.debug("Empty counts, returning empty bursts")
-            return pd.DataFrame()
-        z_scores = (counts - counts.mean()) / counts.std()
-        self.logger.debug("Computed z-scores, mean: %.2f, std: %.2f", counts.mean(), counts.std())
-        burst_mask = z_scores > self.burst_threshold
-        bursts = counts[burst_mask].to_frame(name="burst_count")
-        self.logger.debug("Detectd %d bursts", len(bursts))
-        return bursts
+            return pd.DataFrame(columns=["start", "end", "message_count"])
+
+        # Coerce index to DatetimeIndex
+        counts.index = pd.to_datetime(counts.index, errors="coerce")
+        if counts.index.hasnans:
+            self.logger.warning("Index contains NaT values after coercion; dropping them")
+            counts = counts.dropna()  # Ensure no NaT entries
+
+        if not isinstance(counts.index, pd.DatetimeIndex):
+            self.logger.warning("counts.index is not a DatetimeIndex; returning empty bursts")
+            return pd.DataFrame(columns=["start", "end", "message_count"])
+
+        if granularity == "H":
+            # Hour-specific percentiles
+            hour = counts.index.hour
+            percentiles = counts.groupby("hour").quantile(self.burst_percentile / 100)
+            # NOTE: percentiles.reindex(hour).values could replace the list comprehension for larger datasets
+            threshold_series = pd.Series([percentiles[h] for h in hour], index=counts.index)
+        else:
+            # Overall percentile
+            threshold = counts.quantile(self.burst_percentile / 100)
+            threshold_series = pd.Series(threshold, index=counts.index)
+
+        burst_mask = counts > threshold_series
+
+        # Group consecutive burst days into periods
+        burst_periods: list[dict[str, pd.Timestamp | int | None]] = []
+        start_idx: pd.Timestamp | None = None
+        prev_idx: pd.Timestamp | None = None
+        total_count: int = 0
+
+        for idx, is_burst in burst_mask.items():
+            timestamp_idx = cast(pd.Timestamp, idx)  # Cast Hashable to Timestamp
+            if is_burst:
+                if start_idx is None:
+                    start_idx = timestamp_idx  # Start of a new burst
+                total_count += counts[timestamp_idx]
+                prev_idx = timestamp_idx
+            elif start_idx is not None:
+                burst_periods.append({"start": start_idx, "end": prev_idx, "message_count": total_count})
+                start_idx = None
+                total_count = 0
+
+        # Handle case where burst ends at the last index
+        if start_idx is not None:
+            burst_periods.append({"start": start_idx, "end": prev_idx, "message_count": total_count})
+
+        bursts_df = pd.DataFrame(burst_periods)
+        self.logger.debug("Detected %d burst periods", len(bursts_df))
+        return bursts_df
 
     def _empty_time_series(self) -> TimeSeriesDict:
         """

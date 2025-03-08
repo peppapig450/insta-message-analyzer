@@ -66,6 +66,8 @@ def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult
     # bursts: must be a DataFrame
     if not isinstance(obj["bursts"], pd.DataFrame):
         return False
+    if not obj["bursts"].empty and not {"start", "end", "message_count"}.issubset(obj["bursts"].columns):
+        return False # Ensure required columns if not empty
 
     # per_chat_bursts: dict with ChatId keys and DataFrame values
     if not isinstance(obj["per_chat_bursts"], dict) or not all(
