@@ -11,13 +11,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ..analysis.types import ChatId
 from ..analysis.validation import is_activity_analysis_result, is_time_series_dict
 from ..utils.logging import get_logger
 
@@ -145,15 +143,16 @@ class TimeSeriesPlotter:
         # Generate individual plots
         self.logger.debug("Starting plot generation")
         try:
-            # self._plot_message_frequency(ts_results)
-            # self._plot_day_of_week(ts_results)
-            # self._plot_hour_of_day(ts_results)
-            # self._plot_hourly_per_day(ts_results)
-            # self._plot_bursts(activity_results)
-            # self._plot_top_senders_per_chat(activity_results)
-            # self._plot_top_senders_per_day(activity_results)
-            # self._plot_top_senders_per_week(activity_results)
+            self._plot_message_frequency(ts_results)
+            self._plot_day_of_week(ts_results)
+            self._plot_hour_of_day(ts_results)
+            self._plot_hourly_per_day(ts_results)
+            self._plot_bursts(activity_results)
+            self._plot_top_senders_per_chat(activity_results)
+            self._plot_top_senders_per_day(activity_results)
+            self._plot_top_senders_per_week(activity_results)
             self._plot_active_hours_heatmap(activity_results)
+            self._plot_chat_lifecycles(activity_results)
 
             self.logger.info("Generated visualizations in %s", self.output_dir)
         except Exception:
@@ -1245,30 +1244,105 @@ class TimeSeriesPlotter:
         """
         lifecycles = activity_results.get("chat_lifecycles", {})
         chat_names = activity_results.get("chat_names", {})
+
         if not lifecycles:
             self.logger.warning("No chat lifecycles data; skipping plot")
             return
 
-        df = pd.DataFrame(lifecycles).T
+        try:
+            lifecycle_data = []
+            for chat_id, lifecycle in lifecycles.items():
+                # Get display name if available
+                chat_name = chat_names.get(chat_id, f"Chat {chat_id}")
 
-        # Ensure datetime type
-        df["first_message"] = pd.to_datetime(df["first_message"], errors="coerce")
-        df["last_message"] = pd.to_datetime(df["last_message"], errors="coerce")
-        df = df.dropna(subset=["first_message", "last_message"])
-        if df.empty:
-            self.logger.warning("No valid chat lifecycle data after datetime conversion; skipping plot")
-            return
+                duration_hours = (
+                    lifecycle["last_message"] - lifecycle["first_message"]
+                ).total_seconds() / 3600
 
-        durations = (df["last_message"] - df["first_message"]).dt.total_seconds() / (24 * 3600)  # Days
-        labels = [f"{chat_names.get(ChatId(i), i)}" for i in df.index]
-        self.logger.debug("Plotting chat lifecycles, chats: %d", len(df))
-        plt.figure(figsize=(12, 6))
-        durations.plot(kind="bar")
-        plt.title("Chat Lifecycle Durations")
-        plt.xlabel("Chat")
-        plt.ylabel("Duration (Days)")
-        plt.xticks(range(len(labels)), labels, rotation=45, ha="right")
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "chat_lifecycles.png")
-        plt.close()
-        self.logger.info("Saved chat lifecycles plot")
+                # NOTE: TypedDict?
+                lifecycle_data.append(
+                    {
+                        "ChatID": chat_id,
+                        "ChatName": chat_name,
+                        "Start": lifecycle["first_message"],
+                        "End": lifecycle["last_message"],
+                        "PeakDate": pd.Timestamp(lifecycle["peak_date"])
+                        if lifecycle["peak_date"]
+                        else None,
+                        "AvgResponseTime": lifecycle["avg_response_time"],
+                        "DurationHours": duration_hours,
+                        "MessageCount": lifecycle["message_count"],
+                    }
+                )
+
+            if not lifecycle_data:
+                self.logger.warning("No lifecycle data to plot")
+                return
+
+            lifecycle_df = pd.DataFrame(lifecycle_data)
+            # Sort by start date for better visualization
+            lifecycle_df = lifecycle_df.sort_values(by="Start")
+
+            # Create figure with timeline display
+            fig = go.Figure()
+
+            # Add the main chat timeline bars
+            fig.add_trace(
+                go.Bar(
+                    x=lifecycle_df["Start"],
+                    y=lifecycle_df["ChatName"],
+                    width=(lifecycle_df["DurationHours"] * pd.Timedelta(hours=1)).dt.total_seconds()
+                    * 1000,  # Convert hours to milliseconds for plotly
+                    orientation="h",
+                    marker_color=self.color_scheme["primary"],
+                    hovertemplate=(
+                        "<b>Chat</b>: %{y}<br>"
+                        "<b>Start</b>: %{x|%Y-%m-%d %H:%M}<br>"
+                        "<b>End</b>: %{customdata[0]|%Y-%m-%d %H:%M}<br>"
+                        "<b>Duration</b>: %{customdata[1]:.1f} hours<br>"
+                        "<b>Avg Response<b>: %{customdata[2]:.1f} seconds<br>"
+                        "<b>Messages</b>: %{customdata[3]}<br>"
+                        "<extra></extra>"
+                    ),
+                    customdata=list(
+                        zip(
+                            lifecycle_df["End"],
+                            lifecycle_df["DurationHours"],
+                            lifecycle_df["AvgResponseTime"],
+                            lifecycle_df["MessageCount"],
+                            strict=False,
+                        )
+                    ),
+                )
+            )
+
+            # Add peak activity markers if available
+            peak_dates = lifecycle_df[lifecycle_df["PeakDate"].notna()]
+            if not peak_dates.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=peak_dates["PeakDate"],
+                        y=peak_dates["ChatName"],
+                        mode="markers",
+                        marker={
+                            "symbol": "star",
+                            "size": 10,
+                            "color": self.color_scheme.get("accent", "yellow"),
+                        },
+                        name="Peak Activity",
+                        hovertemplate="<b>%{y}</b><br>Peak Activity: %{x|%Y-%m-%d}<extra></extra>",
+                    )
+                )
+
+            fig.update_layout(
+                xaxis_title="Timeline",
+                yaxis_title="Chat",
+                xaxis={"type": "date", "rangeslider_visible": True},
+                barmode="overlay",
+                height=max(300, len(lifecycle_df) * 30),
+            )
+
+            self._apply_common_layout(fig, "Chat Lifecycles")
+            self._save_figure(fig, "chat_lifecycles.html", "interactive chat lifecycles plot")
+        except Exception:
+            self.logger.exception("Error plotting chat lifecycles")

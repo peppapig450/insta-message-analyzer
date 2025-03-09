@@ -169,6 +169,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
                 else "",
                 "last_message": timestamps.iloc[-1],
                 "avg_response_time": response_times.mean() if not response_times.empty else 0.0,
+                "message_count": len(group)
             }
 
             # Top senders per chat
@@ -187,14 +188,14 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         df["date"] = df["timestamp"].dt.floor("D")
         df["week"] = df["timestamp"].dt.to_period("W").dt.start_time
         top_senders_day = (
-            df.groupby("date")["sender"]
+            df.groupby("date")["sender"]  # noqa: PD010
             .value_counts()
             .groupby("date")
             .head(self.top_n_senders)
             .unstack(fill_value=0)
         )
         top_senders_week = (
-            df.groupby("week")["sender"]
+            df.groupby("week")["sender"]  # noqa: PD010
             .value_counts()
             .groupby("week")
             .head(self.top_n_senders)

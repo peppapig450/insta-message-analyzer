@@ -105,6 +105,7 @@ def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult
             and isinstance(lifecycle["peak_date"], str)
             and isinstance(lifecycle["last_message"], pd.Timestamp)
             and isinstance(lifecycle["avg_response_time"], float)
+            and isinstance(lifecycle["message_count"], int)
         ):
             return False
 

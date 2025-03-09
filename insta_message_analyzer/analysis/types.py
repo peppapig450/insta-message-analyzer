@@ -62,12 +62,15 @@ class ChatLifecycle(TypedDict):
         Timestamp of the last message in the chat.
     avg_response_time : float
         Average response time between messages in seconds.
+    message_count : int
+        Total number of messages in a chat.
     """
 
     first_message: pd.Timestamp
     peak_date: str
     last_message: pd.Timestamp
     avg_response_time: float
+    message_count: int
 
 
 # Per-chat and per-user analysis types
