@@ -7,6 +7,7 @@ analysis results, including message counts, rolling averages, day-of-week, and h
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -147,13 +148,16 @@ class TimeSeriesPlotter:
         # Generate individual plots
         self.logger.debug("Starting plot generation")
         try:
-           #self._plot_message_frequency(ts_results)
-           #self._plot_day_of_week(ts_results)
-           #self._plot_hour_of_day(ts_results)
-           #self._plot_hourly_per_day(ts_results)
-           self._plot_bursts(activity_results)
+            self._plot_message_frequency(ts_results)
+            self._plot_day_of_week(ts_results)
+            self._plot_hour_of_day(ts_results)
+            self._plot_hourly_per_day(ts_results)
+            self._plot_bursts(activity_results)
+            self._plot_top_senders_per_chat(activity_results)
+            self._plot_top_senders_per_day(activity_results)
+            self._plot_top_senders_per_week(activity_results)
 
-           self.logger.info("Generated visualizations in %s", self.output_dir)
+            self.logger.info("Generated visualizations in %s", self.output_dir)
         except Exception:
             self.logger.exception("Error generating plots")
 
@@ -600,16 +604,10 @@ class TimeSeriesPlotter:
                 title_text="Burst Period",
                 tickmode="array",
                 tickvals=bursts.index,
-                ticktext=[f"Burst {i + 1}" for i in bursts.index]
+                ticktext=[f"Burst {i + 1}" for i in bursts.index],
             )
 
-            fig.update_layout(
-                xaxis={
-                    "rangeslider": {"visible": True},
-                    "type": "date",
-                    "title": "Time"
-                }
-            )
+            fig.update_layout(xaxis={"rangeslider": {"visible": True}, "type": "date", "title": "Time"})
 
             # Apply common layout and save
             self._apply_common_layout(fig, "Message Burst Periods")
@@ -619,33 +617,143 @@ class TimeSeriesPlotter:
 
     def _plot_top_senders_per_chat(self, activity_results: ActivityAnalysisResult) -> None:
         """
-        Plot bar charts of top senders for each chat.
+        Create an interactive grouped bar chart of top senders per chat.
+
+        This method visualizes the top message senders for each chat, grouping bars by chat name
+        (mapped from chat IDs) and coloring by sender. Chat names are sourced from the 'chat_names'
+        dictionary for improved readability.
 
         Parameters
         ----------
         activity_results : ActivityAnalysisResult
-            Full analysis results including chat names.
+            Analysis results containing 'top_senders_per_chat' (dict of chat IDs to sender counts)
+            and 'chat_names' (dict mapping chat IDs to names).
+
+        Notes
+        -----
+        - Skips plotting if 'top_senders_per_chat' is empty or missing, logging a warning.
+        - Uses chat names from 'chat_names'; falls back to 'Chat {chat_id}' if a name is missing.
+        - Rotates x-axis labels 45 degrees for readability with potentially long sender names.
         """
         top_senders = activity_results.get("top_senders_per_chat", {})
         chat_names = activity_results.get("chat_names", {})
+
         if not top_senders:
-            self.logger.warning("No top senders per chat data; skipping plot")
+            self.logger.warning("No top senders data available; skipping top senders per chat plot")
             return
-        for chat_id, senders in top_senders.items():
-            chat_name = chat_names.get(chat_id, f"Chat {chat_id}")
-            self.logger.debug(
-                "Plotting top senders for chat %d (%s), senders: %s", chat_id, chat_name, senders.to_dict()
+
+        try:
+            # NOTE: When optimizing the pandas operations can be chained
+
+            # Create DataFrame with chat IDs as columns and senders as index
+            df = pd.DataFrame({str(chat_id): series for chat_id, series in top_senders.items()})
+
+            # Melt the DataFrame
+            sender_df = df.reset_index().melt(
+                id_vars=["sender"],
+                value_vars=df.columns.tolist(),
+                var_name="ChatID",
+                value_name="Messages",
             )
-            plt.figure(figsize=(10, 6))
-            senders.plot(kind="bar", color="coral")
-            plt.title(f"Top Senders in {chat_name}")
-            plt.xlabel("Sender")
-            plt.ylabel("Message Count")
-            plt.xticks(rotation=45, ha="right")
-            plt.tight_layout()
-            plt.savefig(self.output_dir / f"top_senders_chat_{chat_id}.png")
-            plt.close()
-            self.logger.info("Saved top senders plot for %s", chat_name)
+            # Drop rows with NaN messages and map ChatID to Chat names
+            sender_df = sender_df.dropna(subset=["Messages"])
+
+            # Map ChatID to Chat names
+            chat_names_str = {str(k): v for k, v in chat_names.items()}
+            sender_df["Chat"] = sender_df["ChatID"].map(lambda x: chat_names_str.get(x, f"Chat {x}"))
+            sender_df = sender_df.drop(columns=["ChatID"])[["Chat", "sender", "Messages"]]
+
+            # Sort by Messages in descending order to order bars greatest to least within each chat
+            sender_df = (
+                sender_df.groupby("Chat")
+                .apply(lambda x: x.sort_values("Messages", ascending=False))
+                .reset_index(drop=True)
+            )
+
+            fig = px.bar(
+                data_frame=sender_df,
+                x="sender",
+                y="Messages",
+                color="Chat",
+                barmode="group",
+                text="Messages",
+                labels={"Messages": "Message Count", "Chat": "Chat Name", "sender": "Sender"},
+                template=self.plotly_template,
+            )
+
+            # Update traces for better readability
+            fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+
+            # Perform type narrowing with a runtime check
+            if not isinstance(fig.data, Sequence):
+                error_msg = "fig.data must be a sequence to support len()"
+                self.logger.exception(
+                    "%s, got type: %s, value: %r", error_msg, type(fig.data).__name__, fig.data
+                )
+                raise TypeError(error_msg)  # noqa: TRY301 #NOTE: add function for this later
+
+            # Create dropdown buttons for filtering by chat
+            all_chats = sender_df["Chat"].unique().tolist()
+            buttons = [
+                {
+                    "label": "All Chats",
+                    "method": "update",
+                    "args": [
+                        {"visible": [True] * len(fig.data)},
+                        {"title": "Top Senders Per Chat - All Chats"},
+                    ],
+                }
+            ]
+
+            # Add a button for each chat
+            for chat in all_chats:
+                # Get senders for this chat only
+                chat_df = sender_df[sender_df["Chat"] == chat]
+                chat_senders = chat_df["sender"].tolist()
+                visibility = [trace.name == chat for trace in fig.data]
+                buttons.append(
+                    {
+                        "label": chat,
+                        "method": "update",
+                        "args": [
+                            {"visible": visibility},
+                            {
+                                "title": f"Top Senders Per Chat - {chat}",
+                                "xaxis.categoryorder": "array",
+                                "xaxis.categoryarray": chat_senders,  # Only show relevant senders
+                            },
+                        ],
+                    }
+                )
+
+            # Update layout with dropdown menu
+            # NOTE: for multiple selections we need to use Dash or custom JavaScript and write custom callbacks
+            fig.update_layout(
+                xaxis_title="Sender",
+                yaxis_title="Message Count",
+                xaxis={
+                    "tickangle": 45,
+                },
+                legend_title="Chat Name",
+                yaxis={"range": [0, sender_df["Messages"].max() * 1.1]},
+                updatemenus=[
+                    {
+                        "buttons": buttons,
+                        "direction": "down",
+                        "pad": {"r": 10, "t": 10},
+                        "showactive": True,
+                        "x": 0.1,
+                        "xanchor": "left",
+                        "y": 1.1,
+                        "yanchor": "top",
+                    }
+                ],
+            )
+
+            self._apply_common_layout(fig, "Top Senders Per Chat")
+            self._save_figure(fig, "top_senders_per_chat.html", "interactive top senders per chat plot")
+        except Exception:
+            self.logger.exception("Error plotting top senders per chat")
 
     def _plot_active_hours_heatmap(self, active_hours: dict[str, pd.Series]) -> None:
         """
@@ -696,67 +804,288 @@ class TimeSeriesPlotter:
         rcParams["text.parse_math"] = original_parse_math
         self.logger.info("Saved active hours heatmap")
 
-    def _plot_top_senders_day(self, activity_results: ActivityAnalysisResult) -> None:
+    def _plot_top_senders_per_day(self, activity_results: ActivityAnalysisResult) -> None:
         """
-        Plot heatmap of top senders per day.
+        Create an interactive grouped bar chart of top senders per day.
+
+        This method visualizes the top message senders for each day, grouping bars by sender
+        and coloring by day, with dates formatted as 'Feb 12, 2025' for readability.
+        The y-axis scale adjusts dynamically based on the maximum message count of the currently
+        displayed data (all days or a specific day).
 
         Parameters
         ----------
         activity_results : ActivityAnalysisResult
-            Full analysis results.
-        """
-        top_senders = activity_results.get("top_senders_day", pd.DataFrame())
-        if not top_senders.empty:
-            self.logger.debug("Plotting top senders day, shape: %s", top_senders.shape)
-            plt.figure(figsize=(12, 8))
-            plt.imshow(top_senders, aspect="auto", cmap="YlOrRd")
-            plt.colorbar(label="Message Count")
-            plt.title("Top Senders Per Day")
-            plt.xlabel("Sender")
-            plt.ylabel("Date")
-            plt.xticks(
-                range(len(top_senders.columns)),
-                top_senders.columns.astype(str).tolist(),
-                rotation=45,
-                ha="right",
-            )
-            date_labels = top_senders.index.astype(str).tolist()
-            plt.yticks(range(len(date_labels)), date_labels)
-            plt.tight_layout()
-            plt.savefig(self.output_dir / "top_senders_day.png")
-            plt.close()
-            self.logger.info("Saved top senders day plot")
+            Analysis results containing 'top_senders_day' (DataFrame with dates as index and senders as columns).
 
-    def _plot_top_senders_week(self, activity_results: ActivityAnalysisResult) -> None:
+        Notes
+        -----
+        - Skips plotting if 'top_senders_day' is empty or missing, logging a warning.
+        - Bars are grouped by sender, with colors representing days.
+        - Rotates x-axis labels 45 degrees for readability with potentially long sender names.
+        - Y-axis range adjusts dynamically to the maximum message count of the visible data.
         """
-        Plot heatmap of top senders per week.
+        top_senders_df = activity_results.get("top_senders_day", pd.DataFrame())
+        if top_senders_df.empty:
+            self.logger.warning("No top senders by day data available; skipping top senders per day plot")
+            return
+
+        try:
+            # Melt the DataFrame to long format: columns 'date', 'sender', 'Messages'
+            sender_df = top_senders_df.reset_index().melt(
+                id_vars=["date"], var_name="sender", value_name="Messages"
+            )
+            # Filter out zero message counts (senders not in top N for a day)
+            sender_df = sender_df[sender_df["Messages"] > 0]
+            # Rename 'date' to 'Day' and convert to string for trace consistency
+            sender_df = sender_df.rename(columns={"date": "Day"})
+            # Format the Day column to a readable string
+            sender_df["Day"] = sender_df["Day"].dt.strftime("%b %d, %Y")  # e.g., "Feb 12, 2025"
+
+            # Sort senders by message count within each day (descending)
+            sender_df = (
+                sender_df.groupby("Day")
+                .apply(lambda x: x.sort_values("Messages", ascending=False))
+                .reset_index(drop=True)
+            )
+
+            # Create the interactive bar chart
+            fig = px.bar(
+                data_frame=sender_df,
+                x="sender",
+                y="Messages",
+                color="Day",
+                barmode="group",
+                text="Messages",
+                labels={"Messages": "Message Count", "Day": "Day", "sender": "Sender"},
+                template=self.plotly_template,
+            )
+
+            # Enhance readability of bar labels
+            fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+
+            # Verify fig.data is a sequence for length operations
+            if not isinstance(fig.data, Sequence):
+                error_msg = "fig.data must be a sequence to support len()"
+                self.logger.exception(
+                    "%s, got type: %s, value: %r", error_msg, type(fig.data).__name__, fig.data
+                )
+                raise TypeError(error_msg)  # noqa: TRY301
+
+            # Calculate maximum message counts for scaling
+            # Overall max for "All Days"
+            overall_max = sender_df["Messages"].max() * 1.2  # Add 20% buffer
+            # Per-day max for individual day filters
+            day_maxes = sender_df.groupby("Day")["Messages"].max() * 1.2  # Add 20% buffer per day
+
+            # Create dropdown buttons
+            all_days = sender_df["Day"].unique().tolist()
+            buttons = [
+                {
+                    "label": "All Days",
+                    "method": "update",
+                    "args": [
+                        {"visible": [True] * len(fig.data)},
+                        {"title": "Top Senders Per Day - All Days", "yaxis.range": [0, overall_max]},
+                    ],
+                }
+            ]
+
+            # Add a button for each day
+            for day in all_days:
+                # Filter senders for this day
+                day_df = sender_df[sender_df["Day"] == day]
+                day_senders = day_df["sender"].tolist()
+                # Get the max for this day
+                day_max = day_maxes[day]
+                # Set visibility: show only the trace for this day
+                visibility = [trace.name == day for trace in fig.data]
+                buttons.append(
+                    {
+                        "label": day,
+                        "method": "update",
+                        "args": [
+                            {"visible": visibility},
+                            {
+                                "title": f"Top Senders Per Day - {day}",
+                                "xaxis.categoryorder": "array",
+                                "xaxis.categoryarray": day_senders,  # Only show relevant senders
+                                "yaxis.range": [0, day_max],  # Scale to this day's max
+                            },
+                        ],
+                    }
+                )
+
+            # Update layout with axes titles, legend, and dropdown
+            fig.update_layout(
+                xaxis_title="Sender",
+                yaxis_title="Message Count",
+                xaxis={"tickangle": 45},
+                legend_title="Day",
+                yaxis={"range": [0, overall_max]},
+                updatemenus=[
+                    {
+                        "buttons": buttons,
+                        "direction": "down",
+                        "pad": {"r": 10, "t": 10},
+                        "showactive": True,
+                        "x": 0.1,
+                        "xanchor": "left",
+                        "y": 1.1,
+                        "yanchor": "top",
+                    }
+                ],
+            )
+
+            # Apply common layout and save the figure
+            self._apply_common_layout(fig, "Top Senders Per Day")
+            self._save_figure(fig, "top_senders_per_day.html", "interactive top senders per day plot")
+
+        except Exception:
+            self.logger.exception("Error plotting top senders per day")
+
+    def _plot_top_senders_per_week(self, activity_results: ActivityAnalysisResult) -> None:
+        """
+        Create an interactive grouped bar chart of top senders per week.
+
+        This method visualizes the top message senders for each week, grouping bars by sender
+        and coloring by week, with week start dates formatted as 'Jan 6, 2025' for readability.
+        It includes a dropdown menu to filter the plot by specific weeks or view all weeks, with
+        the y-axis scale adjusting dynamically to the maximum message count of the visible data.
 
         Parameters
         ----------
         activity_results : ActivityAnalysisResult
-            Full analysis results.
+            Analysis results containing 'top_senders_week' (DataFrame with week start dates as index
+            and senders as columns).
+
+        Notes
+        -----
+        - Skips plotting if 'top_senders_week' is empty or missing, logging a warning.
+        - Bars are grouped by sender, with colors representing weeks.
+        - Rotates x-axis labels 45 degrees for readability with potentially long sender names.
+        - Y-axis range adjusts dynamically to the maximum message count of the visible data.
         """
-        top_senders = activity_results.get("top_senders_week", pd.DataFrame())
-        if not top_senders.empty:
-            self.logger.debug("Plotting top senders week, shape: %s", top_senders.shape)
-            plt.figure(figsize=(12, 8))
-            plt.imshow(top_senders, aspect="auto", cmap="YlOrRd")
-            plt.colorbar(label="Message Count")
-            plt.title("Top Senders Per Week")
-            plt.xlabel("Sender")
-            plt.ylabel("Week Start")
-            plt.xticks(
-                range(len(top_senders.columns)),
-                top_senders.columns.astype(str).tolist(),
-                rotation=45,
-                ha="right",
+        top_senders_df = activity_results.get("top_senders_week", pd.DataFrame())
+        if top_senders_df.empty:
+            self.logger.warning("No top senders by week data available; skipping top senders per week plot")
+            return
+
+        try:
+            # Melt the DataFrame to long format: 'week', 'sender', 'Messages'
+            sender_df = top_senders_df.reset_index().melt(
+                id_vars=["week"], var_name="sender", value_name="Messages"
             )
-            week_labels = top_senders.index.astype(str).tolist()
-            plt.yticks(range(len(week_labels)), week_labels)
-            plt.tight_layout()
-            plt.savefig(self.output_dir / "top_senders_week.png")
-            plt.close()
-            self.logger.info("Saved top senders week plot")
+
+            # Filter out zero message counts
+            sender_df = sender_df[sender_df["Messages"] > 0]
+            # Format week start dates as 'Jan 6, 2025' and rename to 'Week'
+            sender_df = sender_df.rename(columns={"week": "Week", "sender": "Sender"})
+            sender_df["Week"] = sender_df["Week"].dt.strftime("%b %d, %Y")  # e.g., "Jan 6, 2025"
+
+            # Sort senders by message count within each week (descending)
+            sender_df = (
+                sender_df.groupby("Week")
+                .apply(lambda x: x.sort_values("Messages", ascending=False))
+                .reset_index(drop=True)
+            )
+
+            # Create the interactive bar chart
+            fig = px.bar(
+                data_frame=sender_df,
+                x="Sender",
+                y="Messages",
+                color="Week",
+                barmode="group",
+                text="Messages",
+                labels={"Messages": "Message Count", "Week": "Week Start", "Sender": "Sender"},
+                template=self.plotly_template,
+            )
+
+            # Enhance readability of bar labels
+            fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+
+            # Verify fig.data is a sequence for length operations
+            if not isinstance(fig.data, Sequence):
+                error_msg = "fig.data must be a sequence to support len()"
+                self.logger.exception(
+                    "%s, got type: %s, value: %r", error_msg, type(fig.data).__name__, fig.data
+                )
+                raise TypeError(error_msg)
+
+            # Calculate maximum message counts for scaling
+            # Overall max for "All Weeks"
+            overall_max = sender_df["Messages"].max() * 1.2  # Add 20% buffer
+            # Per-week max for individual week filters
+            week_maxes = sender_df.groupby("Week")["Messages"].max() * 1.2  # Add a 20% buffer per week
+
+            # Create dropdown buttons
+            all_weeks = sender_df["Week"].unique().tolist()
+            buttons = [
+                {
+                    "label": "All Weeks",
+                    "method": "update",
+                    "args": [
+                        {"visible": [True] * len(fig.data)},
+                        {
+                            "title": "Top Senders Per Week - All Weeks",
+                            "yaxis.range": [0, overall_max],  # Scale to overall max
+                        },
+                    ],
+                }
+            ]
+
+            # Add a button for ea ch week
+            for week in all_weeks:
+                # Filter senders for this week
+                week_df = sender_df[sender_df["Week"] == week]
+                week_senders = week_df["Sender"].tolist()
+                # Get the max for this week
+                week_max = week_maxes[week]
+                # Set visibility: show only the trace for this week
+                visibility = [trace.name == week for trace in fig.data]
+                buttons.append(
+                    {
+                        "label": week,  # Formatted as "Jan 6, 2025"
+                        "method": "update",
+                        "args": [
+                            {"visible": visibility},
+                            {
+                                "title": f"Top Senders Per Week - {week}",
+                                "xaxis.categoryorder": "array",
+                                "xaxis.categoryarray": week_senders,
+                                "yaxis.range": [0, week_max],
+                            },
+                        ],
+                    }
+                )
+
+            # Update layout with axes titles, legend, and dropdown
+            fig.update_layout(
+                xaxis_title="Sender",
+                yaxis_title="Message Count",
+                xaxis={"tickangle": 45},
+                legend_title="Week Start",
+                yaxis={"range": [0, overall_max]},
+                updatemenus=[
+                    {
+                        "buttons": buttons,
+                        "direction": "down",
+                        "pad": {"r": 10, "t": 10},
+                        "showactive": True,
+                        "x": 0.1,
+                        "xanchor": "left",
+                        "y": 1.1,
+                        "yanchor": "top",
+                    }
+                ],
+            )
+
+            # Apply common layout and save the figure
+            self._apply_common_layout(fig, "Top Senders Per Week")
+            self._save_figure(fig, "top_senders_week.html", "interactive top senders per week plot")
+        except Exception:
+            self.logger.exception("Error plotting top senders per week")
 
     def _plot_chat_lifecycles(self, activity_results: ActivityAnalysisResult) -> None:
         """
