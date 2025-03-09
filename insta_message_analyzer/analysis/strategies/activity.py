@@ -206,14 +206,28 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
 
         # Active hours per user
         active_hours_per_user: dict[str, pd.Series] = {}
+        message_count_per_user: dict[str, int] = {}
         hours = range(24)
         for sender, group in df.groupby("sender"):
             hour_counts = (
                 group["timestamp"].dt.hour.value_counts().reindex(hours, fill_value=0).sort_index()
             )
+
+            # Store raw hour counts for later use
+            sender_str = str(sender)
+            active_hours_per_user[f"{sender_str}_raw"] = hour_counts.copy()
+
+            # Store total message count for this user
+            message_count_per_user[sender_str] = int(hour_counts.sum())
+
+            # Calculate and store normalized values (percentage of activity by hour)
             active_hours_per_user[str(sender)] = hour_counts / hour_counts.sum()  # Normalized
+
             self.logger.debug(
-                "Computed active hours for user %s, sample: %s", sender, hour_counts.head().to_dict()
+                "Computed active hours for user %s, total messages: %d, sample: %s",
+                sender,
+                message_count_per_user[sender_str],
+                hour_counts.head().to_dict(),
             )
 
         results: ActivityAnalysisResult = {
@@ -227,6 +241,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             "chat_lifecycles": chat_lifecycles,
             "top_senders_per_chat": top_senders_per_chat,
             "active_hours_per_user": active_hours_per_user,
+            "message_count_per_user": message_count_per_user,
             "chat_names": chat_names,
         }
         self.logger.info(
@@ -406,6 +421,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             "chat_lifecycles": {},
             "top_senders_per_chat": {},
             "active_hours_per_user": {},
+            "message_count_per_user": {},
             "chat_names": {},
         }
 

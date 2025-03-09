@@ -108,6 +108,8 @@ class ActivityAnalysisResult(TypedDict):
         Top senders for each chat, with chat IDs as keys and sender counts as values.
     active_hours_per_user : ActiveHoursPerUser
         Normalized hourly activity distribution for each user, with usernames as keys.
+    message_count_per_user : dict[str, int]
+        Total message count for each user, with usernames as keys.
     top_senders_day : TopSendersDataFrame
         Top senders aggregated by day, with dates as rows and senders as columns.
     top_senders_week : TopSendersDataFrame
@@ -125,6 +127,7 @@ class ActivityAnalysisResult(TypedDict):
     total_messages: int
     top_senders_per_chat: TopSendersPerChat
     active_hours_per_user: ActiveHoursPerUser
+    message_count_per_user: dict[str, int]
     top_senders_day: TopSendersDataFrame
     top_senders_week: TopSendersDataFrame
     chat_lifecycles: dict[ChatId, ChatLifecycle]

@@ -11,13 +11,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import emoji
 import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import seaborn as sns
-from matplotlib import rcParams
 from plotly.subplots import make_subplots
 
 from ..analysis.types import ChatId
@@ -148,14 +145,15 @@ class TimeSeriesPlotter:
         # Generate individual plots
         self.logger.debug("Starting plot generation")
         try:
-            self._plot_message_frequency(ts_results)
-            self._plot_day_of_week(ts_results)
-            self._plot_hour_of_day(ts_results)
-            self._plot_hourly_per_day(ts_results)
-            self._plot_bursts(activity_results)
-            self._plot_top_senders_per_chat(activity_results)
-            self._plot_top_senders_per_day(activity_results)
-            self._plot_top_senders_per_week(activity_results)
+            # self._plot_message_frequency(ts_results)
+            # self._plot_day_of_week(ts_results)
+            # self._plot_hour_of_day(ts_results)
+            # self._plot_hourly_per_day(ts_results)
+            # self._plot_bursts(activity_results)
+            # self._plot_top_senders_per_chat(activity_results)
+            # self._plot_top_senders_per_day(activity_results)
+            # self._plot_top_senders_per_week(activity_results)
+            self._plot_active_hours_heatmap(activity_results)
 
             self.logger.info("Generated visualizations in %s", self.output_dir)
         except Exception:
@@ -755,54 +753,203 @@ class TimeSeriesPlotter:
         except Exception:
             self.logger.exception("Error plotting top senders per chat")
 
-    def _plot_active_hours_heatmap(self, active_hours: dict[str, pd.Series]) -> None:
+    def _plot_active_hours_heatmap(self, activity_results: ActivityAnalysisResult) -> None:
         """
-        Plot a heatmap of normalized active hours per user.
+        Create an interactive heatmap of active hours per user with enhanced features.
+
+        Visualizes hourly message activity with hours (0-23) on x-axis and users on y-axis,
+        including hover details, zoom functionality, and interactive controls.
+        Supports both normalized percentage view and raw count view.
 
         Parameters
         ----------
-        active_hours : dict[str, pd.Series]
-            Normalized hourly message distribution per user.
+        activity_results : ActivityAnalysisResult
+            Dictionary containing active_hours_per_user and message_count_per_user.
         """
-        # Store original setting and disable math parsing
-        original_parse_math = rcParams["text.parse_math"]
-        rcParams["text.parse_math"] = False
+        active_hours = activity_results.get("active_hours_per_user", {})
+        message_counts = activity_results.get("message_count_per_user", {})
 
-        # Convert to DataFrame and transpose for heatmap
-        active_hours_df = pd.DataFrame(active_hours).T
-        active_hours_df.index.name = "User"
-        active_hours_df.columns.name = "Hour"
+        if not active_hours:
+            self.logger.warning("No active hours data available; skipping active hours heatmap")
+            return
 
-        # Sanitize labels: remove emojis and escape '$'
-        def sanitize_label(text: str) -> str:
-            return emoji.replace_emoji(text, replace="").replace("$", "")
+        try:
+            # Extract normalized data (keys without _raw suffix)
+            normalized_keys = [k for k in active_hours if not k.endswith("_raw")]
+            normalized_data = pd.DataFrame({k: active_hours[k] for k in normalized_keys}).T.fillna(0)
 
-        sanitized_labels = [sanitize_label(label) for label in active_hours_df.index]
+            # Extract raw data (keys with _raw suffix)
+            raw_keys = [k for k in active_hours if k.endswith("_raw")]
 
-        # Set figure size dynamically
-        n_users = len(active_hours_df)
-        plt.figure(figsize=(12, max(8, n_users * 0.2)))
+            # If raw data is available in the format we stored
+            if raw_keys:
+                # Strip _raw suffix for display
+                raw_data = pd.DataFrame(
+                    {k.replace("_raw", ""): active_hours[k] for k in raw_keys}
+                ).T.fillna(0)
+            else:
+                # Fallback to reconstructing from normalized data and message counts
+                raw_data = normalized_data.copy()
+                for user in raw_data.index:
+                    if user in message_counts:
+                        raw_data.loc[user] = normalized_data.loc[user] * message_counts[user]
 
-        # Create heatmap
-        ax = sns.heatmap(active_hours_df, cmap="YlGnBu", cbar_kws={"label": "Normalized Activity"})
+            if normalized_data.empty:
+                self.logger.warning("Active hours data is empty after conversion; skipping plot")
+                return
 
-        # Set escaped labels on the y-axis
-        ax.set_yticks(range(n_users))
-        ax.set_yticklabels(sanitized_labels, rotation=0, fontsize=8)
+            # Cap the maximum height to prevent overly tall plots with many users
+            max_height = min(800, max(400, len(normalized_data) * 20))
 
-        # Add titles and labels
-        plt.title("Active Hours per User")
-        plt.xlabel("Hour of Day")
-        plt.ylabel("User")
-        plt.tight_layout()
+            # Initial view with normalized data
+            fig = px.imshow(
+                normalized_data,
+                labels={"x": "Hour", "y": "User", "color": "Activity %"},
+                x=[f"{h:02d}:00" for h in range(24)],
+                color_continuous_scale=self.color_scheme["colorscale_sequential"],
+                template=self.plotly_template,
+                aspect="auto",  # Allow flexible aspect ratio
+                height=max_height,  # Capped dynamic height
+            )
 
-        # Save and close
-        plt.savefig(self.output_dir / "active_hours_heatmap.png")
-        plt.close()
+            # Enhanced layout configuration
+            fig.update_layout(
+                title={
+                    "text": "Active Hours Heatmap Per User (Normalized)",
+                    "y": 0.95,
+                    "x": 0.5,
+                    "xanchor": "center",
+                    "yanchor": "top",
+                },
+                xaxis_title="Hour of Day",
+                yaxis_title="User",
+                xaxis={
+                    "tickangle": 45,
+                    "tickmode": "array",
+                    "tickvals": list(range(24)),
+                    "ticktext": [f"{h:02d}:00" for h in range(24)],
+                    "showgrid": True,
+                    "gridcolor": "rgba(128,128,128,0.2)",
+                },
+                yaxis={
+                    "tickmode": "linear",
+                    "automargin": True,  # Prevents label cutoff
+                    # Sort users by most active to least active
+                    "categoryorder": "total descending",
+                },
+                coloraxis_colorbar={
+                    "title": "Activity %",
+                    "tickformat": ".1%",  # Format as percentage for normalized data
+                    "thickness": 20,
+                },
+                margin={"l": 100, "r": 50, "t": 100, "b": 50},
+                hovermode="closest",
+            )
 
-        # Restore original setting
-        rcParams["text.parse_math"] = original_parse_math
-        self.logger.info("Saved active hours heatmap")
+            # Add interactive hover template based on normalized view
+            fig.update_traces(
+                hovertemplate="<b>User</b>: %{y}<br><b>Hour</b>: %{x}<br><b>Messages</b> %{z:.1%}<br>"
+            )
+
+            # Find peak activity hours for annotation
+            peak_hour = int(normalized_data.mean().idxmax())
+            fig.add_annotation(
+                x=peak_hour,
+                y=-0.5,  # Just below the chart
+                text=f"Peak Activity: {peak_hour:02d}:00",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=2,
+                arrowcolor="red",
+                font={"size": 12, "color": "darkred"},
+            )
+
+            # Build toggle buttons for different views
+            normalized_args = [
+                {
+                    "z": [normalized_data.to_numpy()],
+                    "zmin": [0],
+                    "zmax": [normalized_data.to_numpy().max()],
+                },
+                {
+                    "title": "Active Hours Heatmap Per User (Normalized)",
+                    "coloraxis.colorbar.title": "Activity %",
+                    "coloraxis.colorbar.tickformat": ".1%",
+                },
+            ]
+
+            raw_args = [
+                {"z": [raw_data.to_numpy()], "zmin": [0], "zmax": [raw_data.to_numpy().max()]},
+                {
+                    "title": "Active Hours Heatmap Per User (Raw Counts)",
+                    "coloraxis.colorbar.title": "Messages",
+                    "coloraxis.colorbar.tickformat": ",.0f",
+                },
+            ]
+
+            # Add buttons for interactivity
+            fig.update_layout(
+                updatemenus=[
+                    {
+                        "buttons": [
+                            {
+                                "args": normalized_args,
+                                "label": "Show Normalized",
+                                "method": "update",
+                            },
+                            {
+                                "args": raw_args,
+                                "label": "Show Raw Counts",
+                                "method": "update",
+                            },
+                            {
+                                "args": [{"zmax": [0.3], "zmin": [0]}, {"title": "Zoomed View (0-30%)"}],
+                                "label": "Zoom 0-30%",
+                                "method": "update",
+                            },
+                        ],
+                        "direction": "down",
+                        "showactive": True,
+                        "x": 0.1,
+                        "xanchor": "left",
+                        "y": 1.1,
+                        "yanchor": "top",
+                    },
+                    {
+                        "buttons": [
+                            {
+                                "args": [
+                                    {"yaxis.categoryorder": "total descending"},
+                                    {"title": "Sorted by Total Activity (Descending)"},
+                                ],
+                                "label": "Sort by Activity ↓",
+                                "method": "update",
+                            },
+                            {
+                                "args": [
+                                    {"yaxis.categoryorder": "alphabet"},
+                                    {"title": "Sorted Alphabetically"},
+                                ],
+                                "label": "Sort Alphabetically",
+                                "method": "update",
+                            },
+                        ],
+                        "direction": "down",
+                        "showactive": True,
+                        "x": 0.3,
+                        "xanchor": "left",
+                        "y": 1.1,
+                        "yanchor": "top",
+                    },
+                ]
+            )
+
+            # Apply common layout and save
+            self._apply_common_layout(fig, "Active Hours Heatmap Per User")
+            self._save_figure(fig, "active_hours_heatmap.html", "interactive active hours heatmap")
+        except Exception:
+            self.logger.exception("Error plotting active hours heatmap.")
 
     def _plot_top_senders_per_day(self, activity_results: ActivityAnalysisResult) -> None:
         """
