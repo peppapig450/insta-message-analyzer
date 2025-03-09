@@ -90,7 +90,7 @@ def main() -> None:
 
     logger.debug("Generating visualizations")
     try:
-        plotter = TimeSeriesPlotter(results, output_dir)
+        plotter = TimeSeriesPlotter(results, output_dir, theme="dark", width=1000, height=700)
         plotter.plot()
         logger.info("Generated visualizations in %s", output_dir)
     except Exception:
