@@ -63,10 +63,12 @@ class TimeSeriesPlotter:
         """
         Initialize the TimeSeriesPlotter.
 
+        Sets up the plotter with pipeline results, output directory, and visualization preferences.
+
         Parameters
         ----------
         pipeline_results : dict[str, Mapping]
-            Results dictionary from AnalysisPipeline, keyed by strategy names.
+            Results dictionary from `AnalysisPipeline`, keyed by strategy names.
         output_dir : Path
             Directory path where plots will be saved.
         theme : str, optional
@@ -124,8 +126,9 @@ class TimeSeriesPlotter:
 
         Notes
         -----
-            - Requires 'ActivityAnalysis' key in pipeline_results.
-            - Saves plots as HTML files in output_dir for interactivity.
+        - Requires 'ActivityAnalysis' key in `pipeline_results` with valid data.
+        - Saves all plots as HTML files in `output_dir` for interactivity.
+        - Logs warnings if data validation fails and exceptions if plotting errors occur
         """
         # Extract and validate ActivityAnalysis results
         activity_results = self.pipeline_results.get("ActivityAnalysis", {})
@@ -162,12 +165,20 @@ class TimeSeriesPlotter:
         """
         Apply common layout settings to a Plotly figure.
 
+        Updates the given Plotly figure with standardized layout settings, including title,
+        background colors, font colors, grid lines, and a watermark, based on the class's theme.
+
         Parameters
         ----------
         fig : go.Figure
-            The Plotly figure to modify.
+            The Plotly figure to modify in place.
         title : str
-            Title for the plot.
+            Title to set for the plot.
+
+        Notes
+        -----
+        - Modifies the figure in place; does not return a new figure.
+        - Adds a subtle watermark with the text "Generated with TimeSeriesPlotter".
         """
         fig.update_layout(
             title={
@@ -209,21 +220,29 @@ class TimeSeriesPlotter:
 
     def _save_figure(self, fig: go.Figure, filename: str, title: str = "Plot") -> Path | None:
         """
-        Save the plotly figure as an HTML file and handle exceptions.
+        Save a Plotly figure as an interactive HTML file and handle exceptions.
+
+        Writes the figure to the specified filename in the output directory with interactive
+        features like zoom and export options, logging the outcome.
 
         Parameters
         ----------
         fig : go.Figure
-            The plotly figure to save
+            The Plotly figure to save.
         filename : str
-            Filename to save the plot to
-        title : str
-            Description of the plot for logging
+            Filename (without path) to save the plot as (e.g., 'plot.html').
+        title : str, optional
+            Description of the plot for logging purposes. Default is "Plot".
 
         Returns
         -------
         Path | None
-            Path to the saved file or None if saving failed
+            Path to the saved HTML file if successful, None if saving fails.
+
+        Notes
+        -----
+        - Saves the file in `output_dir` with Plotly.js included via CDN.
+        - Logs success or failure with exceptions if they occur.
         """
         output_path = self.output_dir / filename
         try:
@@ -259,12 +278,22 @@ class TimeSeriesPlotter:
 
     def _plot_message_frequency(self, ts_results: TimeSeriesDict) -> None:
         """
-        Plot interactive message counts and rolling average.
+        Generate and save an interactive plot of daily message counts and 7-day rolling average.
+
+        Creates a dual-axis Plotly figure with daily message counts as bars and a 7-day rolling
+        average as a line, including a range slider for time navigation.
 
         Parameters
         ----------
         ts_results : TimeSeriesDict
-            Time series metrics to plot
+            Time series metrics containing 'counts' (daily message counts) and 'rolling_avg'
+            (7-day rolling average).
+
+        Notes
+        -----
+        - Skips plotting if 'counts' or 'rolling_avg' is empty, logging a warning.
+        - Saves the plot to 'message_frequency.html' in `output_dir`.
+        - Includes hover templates and range selector buttons for interactivity.
         """
         if ts_results["counts"].empty or ts_results["rolling_avg"].empty:
             self.logger.warning("Empty 'counts' or 'rolling_avg'; skipping frequency plot")
@@ -348,12 +377,21 @@ class TimeSeriesPlotter:
 
     def _plot_day_of_week(self, ts_results: TimeSeriesDict) -> None:
         """
-        Plot interactive day-of-week distribution with hover information.
+        Generate and save an interactive bar chart of message counts by day of the week.
+
+        Creates a Plotly bar chart showing total message counts for each day of the week,
+        with hover information and text labels on bars.
 
         Parameters
         ----------
         ts_results : TimeSeriesDict
-            Time series metrics to plot.
+            Time series metrics containing 'dow_counts' (message counts per day of week).
+
+        Notes
+        -----
+        - Skips plotting if 'dow_counts' is empty, logging a warning.
+        - Saves the plot to 'dow_counts.html' in `output_dir`.
+        - Maps day indices to names (e.g., 0 to 'Monday') if exactly 7 days are present.
         """
         if ts_results["dow_counts"].empty:
             self.logger.warning("Empty 'dow_counts'; skipping day-of-week plot")
@@ -416,12 +454,21 @@ class TimeSeriesPlotter:
 
     def _plot_hour_of_day(self, ts_results: TimeSeriesDict) -> None:
         """
-        Plot interactive hour-of-day distribution.
+        Generate and save an interactive bar chart of message counts by hour of the day.
+
+        Creates a Plotly bar chart displaying total message counts for each hour (0-23),
+        with formatted hour labels (e.g., '00:00') and hover information.
 
         Parameters
         ----------
         ts_results : TimeSeriesDict
-            Time series metrics to plot.
+            Time series metrics containing 'hour_counts' (message counts per hour).
+
+        Notes
+        -----
+        - Skips plotting if 'hour_counts' is empty, logging a warning.
+        - Saves the plot to 'hour_counts.html' in `output_dir`.
+        - Rotates x-axis labels 45 degrees for readability.
         """
         if ts_results["hour_counts"].empty:
             self.logger.warning("Empty 'hour_counts'; skipping hour-of-day plot")
@@ -431,7 +478,7 @@ class TimeSeriesPlotter:
             # Convert hour counts to DataFrame for Plotly Express
             hour_df = ts_results["hour_counts"].to_frame(name="Messages").reset_index(names=["Hour"])
 
-            # Note: Later when optimizing, chain above with .assign(HourLabel=lambda x: x["Hour"].map("{:02d}:00"))
+            # NOTE: Later when optimizing, chain above with .assign(HourLabel=lambda x: x["Hour"].map("{:02d}:00"))
             # Add formatted hour labels
             def _format_hour(hour: int) -> str:
                 """Format an hour as a two-digit string with ':00' appended."""
@@ -479,12 +526,21 @@ class TimeSeriesPlotter:
 
     def _plot_hourly_per_day(self, ts_results: TimeSeriesDict) -> None:
         """
-        Plot interactive heatmap of hourly message counts per day.
+        Generate and save an interactive heatmap of message counts per hour for each day.
+
+        Creates a Plotly density heatmap with dates on the y-axis, hours (00:00-23:00) on
+        the x-axis, and message counts as color intensity.
 
         Parameters
         ----------
         ts_results : TimeSeriesDict
-            Time series metrics to plot.
+            Time series metrics containing 'hourly_per_day' (DataFrame of hourly counts per day).
+
+        Notes
+        -----
+        - Skips plotting if 'hourly_per_day' is empty, logging a debug message.
+        - Saves the plot to 'hourly_per_day.html' in `output_dir`.
+        - Displays most recent dates at the top (reversed y-axis).
         """
         if ts_results["hourly_per_day"].empty:
             self.logger.debug("Empty 'hourly_per_day'; skipping hourly per day plot")
@@ -763,7 +819,14 @@ class TimeSeriesPlotter:
         Parameters
         ----------
         activity_results : ActivityAnalysisResult
-            Dictionary containing active_hours_per_user and message_count_per_user.
+            Analysis results containing 'active_hours_per_user' (dict of user hourly activity)
+            and 'message_count_per_user' (dict of user message counts).
+        
+        Notes
+        -----
+        - Skips plotting if 'active_hours_per_user' is empty, logging a warning.
+        - Saves the plot to 'active_hours_heatmap.html' in `output_dir`.
+        - Includes buttons for toggling views and sorting, plus a peak activity annotation.
         """
         active_hours = activity_results.get("active_hours_per_user", {})
         message_counts = activity_results.get("message_count_per_user", {})
@@ -1235,12 +1298,22 @@ class TimeSeriesPlotter:
 
     def _plot_chat_lifecycles(self, activity_results: ActivityAnalysisResult) -> None:
         """
-        Plot chat lifecycle durations with chat names.
+        Generate and save an interactive bar chart of chat lifecycle durations.
+
+        Visualizes each chat’s duration as horizontal bars along a timeline, with start dates
+        on the x-axis, chat names on the y-axis, and optional peak activity markers.
 
         Parameters
         ----------
         activity_results : ActivityAnalysisResult
-            Full analysis results including chat names.
+            Analysis results containing 'chat_lifecycles' (dict of chat lifecycle data)
+            and 'chat_names' (dict mapping chat IDs to names).
+
+        Notes
+        -----
+        - Skips plotting if 'chat_lifecycles' is empty, logging a warning.
+        - Saves the plot to 'chat_lifecycles.html' in `output_dir`.
+        - Includes hover details (e.g., duration, response time) and a range slider.
         """
         lifecycles = activity_results.get("chat_lifecycles", {})
         chat_names = activity_results.get("chat_names", {})
