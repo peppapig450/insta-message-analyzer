@@ -29,7 +29,7 @@ class MessagePreprocessor:
         Logger instance for logging messages and errors.
     messages_df : pd.DataFrame
         DataFrame containing processed message data with columns:
-        ['chat_id', 'chat_name', 'sender', 'timestamp', 'content', 'chat_type'].
+        ['chat_id', 'chat_name', 'sender', 'timestamp', 'content', 'chat_type', 'reactions_list'].
 
     Methods
     -------
@@ -142,6 +142,22 @@ class MessagePreprocessor:
                         content = content.encode("latin1").decode("utf-8", errors="replace")
                         content = unicodedata.normalize("NFC", content)
 
+                        # Process reactions
+                        reactions = msg.get("reactions", [])
+                        reaction_list = [
+                            (
+                                unicodedata.normalize(
+                                    "NFC",
+                                    reaction["reaction"].encode("latin1").decode("utf-8", errors="replace"),
+                                ),
+                                unicodedata.normalize(
+                                    "NFC",
+                                    reaction["actor"].encode("latin1").decode("utf-8", errors="replace"),
+                                ),
+                            )
+                            for reaction in reactions
+                        ]
+
                         messages.append(
                             {
                                 "chat_id": int(chat_id),  # Numeric ID from directory
@@ -150,6 +166,7 @@ class MessagePreprocessor:
                                 "timestamp": pd.to_datetime(timestamp, unit="ms"),
                                 "content": content,
                                 "chat_type": chat_type,
+                                "reactions": reaction_list,
                             }
                         )
 
@@ -173,7 +190,7 @@ class MessagePreprocessor:
         -------
         pd.DataFrame
             DataFrame containing processed Instagram messages with columns:
-            ['chat_id', 'chat_name', 'sender', 'timestamp', 'content', 'chat_type'].
+            ['chat_id', 'chat_name', 'sender', 'timestamp', 'content', 'chat_type', 'reactions_list'].
 
         """
         return self.messages_df
