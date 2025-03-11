@@ -1,7 +1,8 @@
 """Type definitions for the Instagram Message Analyzer analysis module."""
 
-from typing import Literal, NewType, TypedDict
+from typing import Any, Literal, NewType, TypedDict
 
+import networkx as nx
 import pandas as pd
 
 # Base types and type aliases
@@ -135,3 +136,16 @@ class ActivityAnalysisResult(TypedDict):
     top_senders_week: TopSendersDataFrame
     chat_lifecycles: dict[ChatId, ChatLifecycle]
     chat_names: dict[ChatId, str]
+
+# TODO: add better docstrings, use type aliases, try to get rid of Any
+class NetworkAnalysisResult(TypedDict):
+    """Structure for network analysis output."""
+
+    bipartite_graph: nx.Graph
+    sender_centrality: dict[str, dict[str, float]]
+    chat_centrality: dict[str, dict[str, float]]
+    communities: dict[str, int]
+    community_metrics: dict[str, Any]
+    sender_projection: nx.Graph
+    influence_metrics: dict[str, Any]
+    cross_chat_metrics: dict[str, Any]
