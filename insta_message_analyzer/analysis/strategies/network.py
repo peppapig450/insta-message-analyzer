@@ -1,9 +1,11 @@
 from collections import defaultdict
+from itertools import combinations
 from pathlib import Path
+from typing import Any
 
+import community as community_louvain
 import networkx as nx
 import pandas as pd
-import community as community_louvain
 from scipy.sparse.linalg import ArpackNoConvergence
 
 from insta_message_analyzer.analysis.protocol import AnalysisStrategy
@@ -79,13 +81,19 @@ class NetworkAnalysis(AnalysisStrategy):
         self.logger.debug("Computing centrality measures")
         centrality_metrics = self._compute_centrality_measures(G, sender_nodes, chat_nodes)
 
-        # Compute sender projection and communities (placeholders for full implementation)
-        sender_projection = nx.bipartite.weighted_projected_graph(G, sender_nodes)
+        if sender_nodes:
+            sender_projection = nx.bipartite.weighted_projected_graph(G, sender_nodes)
+        else:
+            sender_projection = nx.Graph()
+
         community_data = self._identify_communities(sender_projection)
 
-        # Placeholder for additional metrics
-        influence_metrics = {}
-        cross_chat_metrics = {}
+        # Calculate influence metrics (timestamp dependency removed)
+        influence_metrics = self._calculate_influence_metrics(G)
+
+        # Analyze cross-chat participation
+        cross_chat_metrics = self._analyze_cross_chat_participation(data)
+
         reaction_metrics = {}
 
         result: NetworkAnalysisResult = {
@@ -95,7 +103,7 @@ class NetworkAnalysis(AnalysisStrategy):
             "communities": community_data["communities"],
             "community_metrics": community_data["community_metrics"],
             "sender_projection": sender_projection,
-            "influence_metrics": influence_metrics,
+            "sender_influence": influence_metrics["sender_influence"],
             "cross_chat_metrics": cross_chat_metrics,
             "reaction_metrics": reaction_metrics,
         }
@@ -176,6 +184,9 @@ class NetworkAnalysis(AnalysisStrategy):
         Uses weighted measures where applicable; falls back to unweighted eigenvector centrality
         if convergence fails.
         """
+        if G.number_of_nodes() == 0:
+            return {"sender_centrality": {}, "chat_centrality": {}}
+
         degree_centrality = nx.degree_centrality(G)
         betweenness_centrality = nx.betweenness_centrality(G, weight="weight")
 
@@ -233,7 +244,10 @@ class NetworkAnalysis(AnalysisStrategy):
         # Verify that the 'sender_projection' graph has edges
         if not sender_projection.number_of_edges():
             self.logger.warning("Sender projecting has no edges, skipping community detection.")
-            return {"communities": {}, "community_metrics": {}}
+            return {
+                "communities": {},
+                "community_metrics": {"num_communities": 0, "sizes": {}, "modularity": 0, "densities": {}},
+            }
 
         # Check for edge weights
         if not nx.get_edge_attributes(sender_projection, "weight"):
@@ -261,7 +275,7 @@ class NetworkAnalysis(AnalysisStrategy):
         num_communities = len(communities_list)
         sizes = {community_id: len(community) for community_id, community in enumerate(communities_list)}
         densities = {
-            community_id: nx.density(sender_projection.subgraph(community)) #type: ignore[no-untyped-call]
+            community_id: nx.density(sender_projection.subgraph(community))  # type: ignore[no-untyped-call]
             for community_id, community in enumerate(communities_list)
         }
         modularity = community_louvain.modularity(partition, sender_projection, weight="weight")
@@ -274,6 +288,77 @@ class NetworkAnalysis(AnalysisStrategy):
         }
 
         return {"communities": communities, "community_metrics": community_metrics}
+
+    def _calculate_influence_metrics(self, G: nx.Graph) -> dict:
+        """
+        Calculate influence metrics for senders without temporal dependency.
+
+        Parameters
+        ----------
+        G : nx.Graph
+            Bipartite graph of senders and chats.
+
+        Returns
+        -------
+        dict
+            Dictionary with key 'sender_influence', mapping sender nodes to:
+            - 'total_messages': Total number of messages sent.
+            - 'chats_participated': Number of chats participated in.
+        """
+
+        def _get_weight(edge_data: dict[str, Any] | Any) -> float:
+            weight = edge_data.get("weight", 0) if isinstance(edge_data, dict) else 0
+            try:
+                return float(weight)
+            except (ValueError, TypeError):
+                return 0.0
+
+        sender_influence = {}
+
+        for sender in G.nodes():
+            sender_str: str = str(sender)
+            if G.nodes[sender_str].get("bipartite") == 0:
+                total_msgs = sum(_get_weight(G[sender_str][chat]) for chat in G.neighbors(sender_str))
+                num_chats = len(list(G.neighbors(sender)))
+                sender_influence[sender_str] = {
+                    "total_messages": total_msgs,
+                    "chats_participated": num_chats,
+                }
+
+        return {"sender_influence": sender_influence}
+
+    def _analyze_cross_chat_participation(self, data: pd.DataFrame) -> dict:
+        """
+        Analyze cross-chat participation patterns.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame with 'sender' and 'chat_id' columns.
+
+        Returns
+        -------
+        dict
+            Dictionary with two keys:
+            - 'bridge_users': Mapping of senders to number of chats (for those in >1 chat).
+            - 'chat_similarity': Mapping of chat pairs to Jaccard similarity of their senders.
+        """
+        participation = data.groupby(["sender", "chat_id"]).size().unstack(fill_value=0)
+
+        chat_similarity = {}
+        chats = data["chat_id"].unique()
+        for chat1, chat2 in combinations(chats, 2):
+            chat_users1 = set(data[data["chat_id"] == chat1]["sender"].unique())
+            chat_users2 = set(data[data["chat_id"] == chat2]["sender"].unique())
+            intersection = len(chat_users1.intersection(chat_users2))
+            union = len(chat_users1.union(chat_users2))
+            similarity = intersection / union if union > 0 else 0
+            chat_similarity[(chat1, chat2)] = similarity
+
+        user_chat_counts = data.groupby("sender")["chat_id"].nunique().sort_values(ascending=False)
+        bridge_users = user_chat_counts[user_chat_counts > 1].to_dict()
+
+        return {"bridge_users": bridge_users, "chat_similarity": chat_similarity}
 
     def save_results(self, results: NetworkAnalysisResult, output_dir: Path) -> None:
         return None

@@ -147,6 +147,6 @@ class NetworkAnalysisResult(TypedDict):
     communities: dict[str, int]
     community_metrics: dict[str, Any]
     sender_projection: nx.Graph
-    influence_metrics: dict[str, Any]
+    sender_influence: dict[str, Any]
     cross_chat_metrics: dict[str, Any]
     reaction_metrics: dict[str, Any]

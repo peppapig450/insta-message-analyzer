@@ -17,6 +17,14 @@ def sample_data():
     })
 
 @pytest.fixture
+def cross_chat_data():
+    """Fixture providing sample data for cross-chat participation analysis."""
+    return pd.DataFrame({
+        'sender': ['user1', 'user2', 'user2', 'user3', 'user3', 'user4'],
+        'chat_id': ['chat1', 'chat1', 'chat2', 'chat2', 'chat3', 'chat3']
+    })
+    
+@pytest.fixture
 def network_analysis():
     """Fixture providing a NetworkAnalysis instance with a mock logger."""
     logger = Mock()  # Mock logger to avoid real logging during tests
@@ -59,10 +67,70 @@ def test_identify_communities(network_analysis, sample_data):
     # Verify weights are considered
     assert "modularity" in result["community_metrics"], "Modularity should be computed with weights"
 
+def test_analyze_cross_chat_participation(network_analysis, cross_chat_data):
+    """
+    Test the _analyze_cross_chat_participation method with sample data.
+    Verifies bridge users (senders in multiple chats) and Jaccard similarity between chat pairs.
+    """
+    result = network_analysis._analyze_cross_chat_participation(cross_chat_data)
+    
+    # Expected outputs
+    expected_bridge_users = {'user2': 2, 'user3': 2}
+    expected_chat_similarity = {
+        ("chat1", "chat2"): pytest.approx(1/3),
+        ("chat1", "chat3"): 0,
+        ("chat2", "chat3"): pytest.approx(1/3)
+    }
+    
+    # Assertions
+    assert result['bridge_users'] == expected_bridge_users, "Bridge users do not match expected output"
+    assert result['chat_similarity'] == expected_chat_similarity, "Chat similarities do not match expected output"
 
+def test_calculate_influence_metrics(network_analysis, sample_data):
+    """
+    Test the _calculate_influence_metrics method.
+    Verifies total messages and chat participation counts for senders.
+    """
+    # Create bipartite graph from sample data
+    G = network_analysis._create_bipartite_graph(sample_data)
+    
+    # Calculate influence metrics
+    result = network_analysis._calculate_influence_metrics(G)
+    
+    # Expected results based on sample_data:
+    # - user1: 3 messages (2 in chat1, 1 in chat2), 2 chats
+    # - user2: 1 message (1 in chat1), 1 chat
+    # - user3: 1 message (1 in chat2), 1 chat
+    expected_influence = {
+        "sender_influence": {
+            "user1": {"total_messages": 3.0, "chats_participated": 2},
+            "user2": {"total_messages": 1.0, "chats_participated": 1},
+            "user3": {"total_messages": 1.0, "chats_participated": 1},
+        }
+    }
+    
+    # Assertions
+    assert "sender_influence" in result, "Result should contain 'sender_influence' key"
+    assert result == expected_influence, (
+        f"Expected influence metrics {expected_influence}, "
+        f"but got {result}"
+    )
+    
+    # Verify sender nodes only (no chat nodes)
+    sender_nodes = {n for n, d in G.nodes(data=True) if d["bipartite"] == 0}
+    assert set(result["sender_influence"].keys()) == sender_nodes, (
+        "Influence metrics should only include sender nodes"
+    )
+    
+    # Verify type consistency
+    for sender, metrics in result["sender_influence"].items():
+        assert isinstance(metrics["total_messages"], float), "Total messages should be float"
+        assert isinstance(metrics["chats_participated"], int), "Chats participated should be int"
+        
 def test_analyze(network_analysis, sample_data):
-    """Test the full analyze method with weights integrated."""
+    """Test the full analyze method with weights and influence metrics integrated."""
     result = network_analysis.analyze(sample_data)
+    # Basic structure checks
     assert isinstance(result, dict)
     assert "bipartite_graph" in result
     assert "sender_centrality" in result
@@ -70,7 +138,49 @@ def test_analyze(network_analysis, sample_data):
     assert "communities" in result
     assert "community_metrics" in result
     assert "sender_projection" in result
-    # Validate weight-related outputs
-    assert result["bipartite_graph"]["user1"]["chat1"]["weight"] == 2, "Bipartite graph weight incorrect"
-    assert "degree" in result["sender_centrality"]
-    assert result["sender_centrality"]["degree"]["user1"] == 0.5, "Sender centrality degree should reflect weighted edges"
+    assert "sender_influence" in result
+    
+    # Validate specific outputs
+    assert result["bipartite_graph"]["user1"]["chat1"]["weight"] == 2
+    assert result["sender_centrality"]["degree"]["user1"] == 0.5
+    
+    # Validate influence metrics
+    assert result["sender_influence"]["user1"]["total_messages"] == 3.0
+    assert result["sender_influence"]["user1"]["chats_participated"] == 2
+    assert result["sender_influence"]["user2"]["total_messages"] == 1.0
+    assert result["sender_influence"]["user2"]["chats_participated"] == 1
+    assert result["sender_influence"]["user3"]["total_messages"] == 1.0
+    assert result["sender_influence"]["user3"]["chats_participated"] == 1
+
+# New Tests for Edge Cases and Robustness
+def test_analyze_empty_data(network_analysis):
+    """Test analyze method with empty data."""
+    empty_data = pd.DataFrame(columns=["sender", "chat_id", "content"])
+    result = network_analysis.analyze(empty_data)
+    assert isinstance(result, dict)
+    assert result["bipartite_graph"].number_of_nodes() == 0
+    assert result["bipartite_graph"].number_of_edges() == 0
+    assert result["sender_centrality"] == {}
+    assert result["chat_centrality"] == {}
+    assert result["communities"] == {}
+    assert result["community_metrics"]["densities"] == {}
+    assert result["community_metrics"]["modularity"] == 0
+    assert result["community_metrics"]["num_communities"] == 0
+    assert result["community_metrics"]["sizes"] == {}
+    assert result["sender_projection"].number_of_nodes() == 0
+    assert result["sender_influence"] == {}
+
+def test_analyze_single_chat(network_analysis):
+    """Test analyze method with data from a single chat."""
+    single_chat_data = pd.DataFrame({
+        "sender": ["user1", "user2"],
+        "chat_id": ["chat1", "chat1"],
+        "content": ["Hi", "Hello"]
+    })
+    result = network_analysis.analyze(single_chat_data)
+    assert result["bipartite_graph"].number_of_nodes() == 3  # 2 senders + 1 chat
+    assert result["bipartite_graph"].number_of_edges() == 2
+    assert result["sender_influence"]["user1"]["total_messages"] == 1.0
+    assert result["sender_influence"]["user1"]["chats_participated"] == 1
+    assert result["sender_influence"]["user2"]["total_messages"] == 1.0
+    assert result["sender_influence"]["user2"]["chats_participated"] == 1
