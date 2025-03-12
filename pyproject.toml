@@ -150,7 +150,8 @@ exclude = ['tests/']
 ignore_missing_imports = true
 module = [
   "plotly.*",
-  "scipy.*"
+  "scipy.*",
+  "community.*"
 ]
 
 [tool.pytest.ini_options]
