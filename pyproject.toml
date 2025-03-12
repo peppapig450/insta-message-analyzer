@@ -8,6 +8,7 @@ dependencies = [
   "plotly (>=6.0.0,<7.0.0)",
   "networkx (>=3.4.2,<4.0.0)",
   "cdlib (>=0.4.0,<0.5.0)",
+  "python-louvain (>=0.16,<0.17)",
 ]
 description = "A Python tool for analyzing Instagram message data, providing temporal and network analysis to analyze and visualize social interaction patterns."
 name = "insta-message-analyzer"
@@ -32,6 +33,7 @@ pre-commit = "^4.1.0"
 pytest = "^8.3.5"
 ruff = "^0.9.9"
 types-networkx = "^3.4.2.20250304"
+pytest = "^8.3.5"
 
 [tool.ruff]
 exclude = [
@@ -61,6 +63,7 @@ exclude = [
   "node_modules",
   "site-packages",
   "venv",
+  "tests"
 ]
 
 # Same as Black
@@ -141,6 +144,7 @@ strict = true
 warn_no_return = true # Ensure all paths return a value
 warn_unused_configs = true # Catch unused settings
 warn_unused_ignores = true # Highlight unnecessary # type: ignore
+exclude = ['tests/']
 
 [[tool.mypy.overrides]]
 ignore_missing_imports = true
@@ -148,3 +152,8 @@ module = [
   "plotly.*",
   "scipy.*"
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-v --tb=short"  # Verbose output, short traceback
