@@ -146,7 +146,7 @@ class NetworkAnalysis(AnalysisStrategy):
 
         # Create a copy to avoid modifying the original DataFrame
         data_copy = data.copy()
-        
+
         # Add sender nodes
         senders = data_copy["sender"].unique()
         G.add_nodes_from(senders, bipartite=0, type="sender")
@@ -392,7 +392,7 @@ class NetworkAnalysis(AnalysisStrategy):
             with sender nodes (if available).
         """
         # Initialize directed graph
-        reaction_graph = nx.DiGraph()
+        reaction_graph = nx.DiGraph() #type: ignore[var-annotated]
 
         # Add sender nodes if 'sender' column exists
         if "sender" in data.columns:
