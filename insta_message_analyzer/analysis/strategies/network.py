@@ -62,6 +62,7 @@ class NetworkAnalysis(AnalysisStrategy):
             - 'sender_projection': Projected graph of senders.
             - 'influence_metrics': Influence metrics for senders.
             - 'cross_chat_metrics': Metrics on cross-chat participation.
+            - 'reaction_graph': Directed graph of reactions.
             - 'reaction_metrics': Centrality metrics based on reactions.
 
         Notes
@@ -94,7 +95,9 @@ class NetworkAnalysis(AnalysisStrategy):
         # Analyze cross-chat participation
         cross_chat_metrics = self._analyze_cross_chat_participation(data)
 
-        reaction_metrics = {}
+        # Reaction analysis
+        reaction_graph = self._create_reaction_graph(data)
+        reaction_metrics = self._compute_reaction_metrics(reaction_graph)
 
         result: NetworkAnalysisResult = {
             "bipartite_graph": G,
@@ -105,6 +108,7 @@ class NetworkAnalysis(AnalysisStrategy):
             "sender_projection": sender_projection,
             "sender_influence": influence_metrics["sender_influence"],
             "cross_chat_metrics": cross_chat_metrics,
+            "reaction_graph": reaction_graph,
             "reaction_metrics": reaction_metrics,
         }
 
@@ -243,7 +247,7 @@ class NetworkAnalysis(AnalysisStrategy):
         """
         # Verify that the 'sender_projection' graph has edges
         if not sender_projection.number_of_edges():
-            self.logger.warning("Sender projecting has no edges, skipping community detection.")
+            self.logger.warning("Sender projection has no edges, skipping community detection.")
             return {
                 "communities": {},
                 "community_metrics": {"num_communities": 0, "sizes": {}, "modularity": 0, "densities": {}},
@@ -359,6 +363,94 @@ class NetworkAnalysis(AnalysisStrategy):
         bridge_users = user_chat_counts[user_chat_counts > 1].to_dict()
 
         return {"bridge_users": bridge_users, "chat_similarity": chat_similarity}
+
+    def _create_reaction_graph(self, data: pd.DataFrame) -> nx.DiGraph:
+        """
+        Create a directed graph where edges represent reactions from reactors to senders.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            DataFrame with 'sender' column and optionally 'reactions' column.
+            'reactions' contains lists of (reaction_type, reactor) tuples.
+
+        Returns
+        -------
+        nx.DiGraph
+            Directed graph with edges from reactor to sender, weighted by number of reactions.
+            If 'reactions' column is missing or no valid reactions exist, returns an empty graph
+            with sender nodes (if available).
+        """
+        # Initialize directed graph
+        reaction_graph = nx.DiGraph()
+
+        # Add sender nodes if 'sender' column exists
+        if "sender" in data.columns:
+            senders = set(data["sender"])
+            reaction_graph.add_nodes_from(senders)
+        else:
+            return reaction_graph  # Return empty graph if no senders
+
+        # Check if 'reactions' column exists
+        if "reactions" not in data.columns:
+            return reaction_graph  # Return graph with only sender nodes if no reactions column
+
+        # Filter data to only include rows with non-empty reactions
+        data_with_reactions = data[data["reactions"].apply(lambda x: isinstance(x, list) and len(x) > 0)]
+
+        if data_with_reactions.empty:
+            return reaction_graph # Return graph with no sender nodes if no valid reactions
+
+        # Explode reactions and extract reactors
+        exploded = data_with_reactions[["sender", "reactions"]].explode("reactions")
+        exploded["reactor"] = exploded["reactions"].apply(
+            lambda x: x[1] if isinstance(x, list | tuple) and len(x) > 1 else None
+        )
+        exploded = exploded.dropna(subset=["reactor"])
+
+        # Get all unique reactors
+        reactors: set[str] = set(exploded["reactor"])
+        all_users = senders | reactors
+
+        # Initialie directed graph
+        reaction_graph = nx.DiGraph()
+        reaction_graph.add_nodes_from(all_users)
+
+        # Count reactions per (reactor, sender) pair
+        reaction_counts = exploded.groupby(["reactor", "sender"]).size().to_dict()
+
+        # Add weighted edges
+        for (reactor, sender), count in reaction_counts.items():
+            reaction_graph.add_edge(reactor, sender, weight=count)
+
+        return reaction_graph
+
+    def _compute_reaction_metrics(self, reaction_graph: nx.DiGraph) -> dict:
+        """
+        Compute centrality metrics on the reaction graph.
+
+        Parameters
+        ----------
+        reaction_graph : nx.DiGraph
+            Directed graph of reactions.
+
+        Returns
+        -------
+        dict
+            Dictionary with:
+            - 'in_degree': In-degree centrality (reactions received).
+            - 'out_degree': Out-degree centrality (reactions given).
+            - 'pagerank': PageRank scores based on reactions.
+            Returns empty dicts if the graph has no edges (i.e., no reactions).
+        """
+        if reaction_graph.number_of_edges() == 0:
+            return {"in_degree": {}, "out_degree": {}, "pagerank": {}}
+    
+        in_degree = nx.in_degree_centrality(reaction_graph)
+        out_degree = nx.out_degree_centrality(reaction_graph)
+        pagerank = nx.pagerank(reaction_graph, weight="weight")
+
+        return {"in_degree": in_degree, "out_degree": out_degree, "pagerank": pagerank}
 
     def save_results(self, results: NetworkAnalysisResult, output_dir: Path) -> None:
         return None

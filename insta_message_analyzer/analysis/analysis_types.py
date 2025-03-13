@@ -149,4 +149,5 @@ class NetworkAnalysisResult(TypedDict):
     sender_projection: nx.Graph
     sender_influence: dict[str, Any]
     cross_chat_metrics: dict[str, Any]
+    reaction_graph: nx.DiGraph
     reaction_metrics: dict[str, Any]
