@@ -157,7 +157,7 @@ class NetworkAnalysisResult(TypedDict):
     ----------
     bipartite_graph : nx.Graph
         Bipartite graph where nodes are senders (str) and chats (ChatId), and edges represent
-        a sender’s participation in a chat.
+        a sender's participation in a chat.
     sender_centrality : dict[str, CentralityDict]
         Centrality measures for each sender, such as degree or betweenness centrality,
         with sender usernames as keys and dictionaries of measure names to scores as values.
@@ -186,7 +186,7 @@ class NetworkAnalysisResult(TypedDict):
         and value types depend on the analysis.
     reaction_graph : nx.DiGraph
         Directed graph where nodes are senders (str), and directed edges represent reactions
-        (e.g., likes, replies) from one sender to another’s message.
+        (e.g., likes, replies) from one sender to another's message.
     reaction_metrics : dict[str, Any]
         Metrics derived from the reaction graph, such as 'in_degree' (reactions received)
         or 'out_degree' (reactions given) per sender. The exact keys and value types depend
@@ -195,7 +195,7 @@ class NetworkAnalysisResult(TypedDict):
 
     bipartite_graph: nx.Graph
     sender_centrality: dict[str, CentralityDict]
-    chat_centrality: dict[str, CentralityDict]
+    chat_centrality: dict[ChatId, CentralityDict]
     communities: dict[str, int]
     community_metrics: dict[str, Any]
     sender_projection: nx.Graph
