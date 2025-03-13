@@ -1,0 +1,21 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Use the same version as in pyproject.toml
+    rev: v0.9.10
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml # Validates YAML files
+      - id: check-toml # Valides TOML files
+      - id: end-of-file-fixer # Ensure files end with a newline
+      - id: trailing-whitespace # Removes trailing whitespace
+      - id: check-shebang-scripts-are-executable # Checks that scripts with shebangs are executable.
+      - id: check-executables-have-shebangs # Checks that non-binary executables have a proper shebang.
+      - id: check-illegal-windows-names # Check for files that cannot be created on Windows.
