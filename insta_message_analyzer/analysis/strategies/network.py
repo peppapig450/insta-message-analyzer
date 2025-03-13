@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
@@ -60,7 +61,7 @@ class NetworkAnalysis(AnalysisStrategy):
             - 'communities': Mapping of sender nodes to community IDs.
             - 'community_metrics': Metrics about detected communities.
             - 'sender_projection': Projected graph of senders.
-            - 'influence_metrics': Influence metrics for senders.
+            - 'sender_influence': Influence metrics for senders.
             - 'cross_chat_metrics': Metrics on cross-chat participation.
             - 'reaction_graph': Directed graph of reactions.
             - 'reaction_metrics': Centrality metrics based on reactions.
@@ -203,7 +204,7 @@ class NetworkAnalysis(AnalysisStrategy):
         pagerank = nx.pagerank(G, weight="weight")
         closeness_centrality = nx.closeness_centrality(G)
 
-        centrality_meaures = {
+        centrality_measures = {
             "degree": degree_centrality,
             "betweenness": betweenness_centrality,
             "eigenvector": eigenvector_centrality,
@@ -213,10 +214,10 @@ class NetworkAnalysis(AnalysisStrategy):
 
         # Filter results for sender and chat nodes
         sender_centrality = {
-            metric: {n: values[n] for n in sender_nodes} for metric, values in centrality_meaures.items()
+            metric: {n: values[n] for n in sender_nodes} for metric, values in centrality_measures.items()
         }
         chat_centrality = {
-            metric: {n: values[n] for n in chat_nodes} for metric, values in centrality_meaures.items()
+            metric: {n: values[n] for n in chat_nodes} for metric, values in centrality_measures.items()
         }
 
         return {"sender_centrality": sender_centrality, "chat_centrality": chat_centrality}
@@ -263,10 +264,10 @@ class NetworkAnalysis(AnalysisStrategy):
         partition = community_louvain.best_partition(sender_projection, weight="weight")
 
         # Build communities list from partition
-        communites_dict = defaultdict(list)
+        communities_dict = defaultdict(list)
         for node, comm_id in partition.items():
-            communites_dict[comm_id].append(node)
-        communities_list = list(communites_dict.values())
+            communities_dict[comm_id].append(node)
+        communities_list = list(communities_dict.values())
 
         # Assign consecutive community IDs starting from 0
         communities = {
@@ -399,7 +400,7 @@ class NetworkAnalysis(AnalysisStrategy):
         data_with_reactions = data[data["reactions"].apply(lambda x: isinstance(x, list) and len(x) > 0)]
 
         if data_with_reactions.empty:
-            return reaction_graph # Return graph with no sender nodes if no valid reactions
+            return reaction_graph  # Return graph with no sender nodes if no valid reactions
 
         # Explode reactions and extract reactors
         exploded = data_with_reactions[["sender", "reactions"]].explode("reactions")
@@ -445,7 +446,7 @@ class NetworkAnalysis(AnalysisStrategy):
         """
         if reaction_graph.number_of_edges() == 0:
             return {"in_degree": {}, "out_degree": {}, "pagerank": {}}
-    
+
         in_degree = nx.in_degree_centrality(reaction_graph)
         out_degree = nx.out_degree_centrality(reaction_graph)
         pagerank = nx.pagerank(reaction_graph, weight="weight")
@@ -453,4 +454,48 @@ class NetworkAnalysis(AnalysisStrategy):
         return {"in_degree": in_degree, "out_degree": out_degree, "pagerank": pagerank}
 
     def save_results(self, results: NetworkAnalysisResult, output_dir: Path) -> None:
-        return None
+        """
+        Save network analysis results to disk.
+
+        Parameters
+        ----------
+        results : NetworkAnalysisResult
+            Dictionary containing analysis results from `analyze`.
+        output_dir : Path
+            Directory path where results will be saved.
+
+        Notes
+        -----
+        Creates a subdirectory named after the strategy and saves results as CSV and JSON files.
+        Logs the save location upon completion.
+        """
+        strategy_dir = output_dir / self.name
+        strategy_dir.mkdir(parents=True, exist_ok=True)
+
+        # Sender centrality
+        pd.DataFrame(results["sender_centrality"]).T.to_csv(strategy_dir / "sender_centrality.csv")
+
+        # Chat centrality
+        pd.DataFrame.from_dict(results["communities"], orient="index", columns=["community"]).to_csv(
+            strategy_dir / "sender_communities.csv"
+        )
+
+        # Community metrics
+        with (strategy_dir / "community_metrics.json").open("w") as file:
+            json.dump(results["community_metrics"], file)
+
+        # Influence metrics
+        pd.DataFrame(results["sender_influence"]).T.to_csv(strategy_dir / "sender_influence.csv")
+
+        # Cross-chat metrics
+        pd.DataFrame.from_dict(
+            results["cross_chat_metrics"]["bridge_users"], orient="index", columns=["chat_count"]
+        ).to_csv(strategy_dir / "bridge_users.csv")
+        pd.DataFrame.from_dict(
+            results["cross_chat_metrics"]["chat_similarity"], orient="index", columns=["similarity"]
+        ).to_csv(strategy_dir / "chat_similarity.csv")
+
+        # Save reaction metrics
+        pd.DataFrame(results["reaction_metrics"]).T.to_csv(strategy_dir / "reaction_centrality.csv")
+
+        self.logger.info("Saved network analysis results to %s", strategy_dir)
