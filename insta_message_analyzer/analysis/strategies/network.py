@@ -455,12 +455,14 @@ class NetworkAnalysis(AnalysisStrategy):
         strategy_dir.mkdir(parents=True, exist_ok=True)
 
         # Sender centrality
-        pd.DataFrame(results["sender_centrality"]).T.to_csv(strategy_dir / "sender_centrality.csv")
+        sender_centrality_df = pd.DataFrame(results["sender_centrality"]).T
+        sender_centrality_df.index.name = "sender"
+        sender_centrality_df.to_csv(strategy_dir / "sender_centrality.csv")
 
         # Chat centrality
-        pd.DataFrame.from_dict(results["communities"], orient="index", columns=["community"]).to_csv(
-            strategy_dir / "sender_communities.csv"
-        )
+        chat_centrality_df = pd.DataFrame(results["chat_centrality"]).T
+        chat_centrality_df.index.name = "chat_id"
+        chat_centrality_df.to_csv(strategy_dir / "chat_centrality.csv")
 
         # Community metrics
         with (strategy_dir / "community_metrics.json").open("w") as file:
