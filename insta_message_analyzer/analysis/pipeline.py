@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..utils.logging import get_logger
+from ..utils.setup_logging import get_logger
 from .protocol import AnalysisStrategy
 
 
