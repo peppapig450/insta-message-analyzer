@@ -30,6 +30,7 @@ class NetworkAnalysis(AnalysisStrategy):
         """
         self.logger = get_logger(__name__)
         self._name = name
+        self.logger.debug("Initialized NetworkAnalysis strategy with name: %s", name)
 
     @property
     def name(self) -> str:
@@ -70,7 +71,7 @@ class NetworkAnalysis(AnalysisStrategy):
         -----
         Logs the start and completion of the analysis process.
         """
-        self.logger.debug("Starting network analysis")
+        self.logger.debug("Starting network analysis with data shape: %s", data.shape)
 
         # Create bipartite graph
         G = self._create_bipartite_graph(data)
@@ -78,16 +79,22 @@ class NetworkAnalysis(AnalysisStrategy):
         # Get node sets
         sender_nodes = {n for n, d in G.nodes(data=True) if d["bipartite"] == 0}
         chat_nodes = {n for n, d in G.nodes(data=True) if d["bipartite"] == 1}
+        self.logger.debug(
+            "Identified %d sender nodes and %d chat nodes", len(sender_nodes), len(chat_nodes)
+        )
 
         # Compute centrality measures
-        self.logger.debug("Computing centrality measures")
         centrality_metrics = self._compute_centrality_measures(G, sender_nodes, chat_nodes)
 
-        sender_projection = nx.bipartite.weighted_projected_graph(G, sender_nodes) if sender_nodes else nx.Graph()
+        # Project sender nodes
+        sender_projection = (
+            nx.bipartite.weighted_projected_graph(G, sender_nodes) if sender_nodes else nx.Graph()
+        )
 
+        # Identify communities
         community_data = self._identify_communities(sender_projection)
 
-        # Calculate influence metrics (timestamp dependency removed)
+        # Calculate influence metrics
         influence_metrics = self._calculate_influence_metrics(G, sender_nodes)
 
         # Analyze cross-chat participation
@@ -110,7 +117,9 @@ class NetworkAnalysis(AnalysisStrategy):
             "reaction_metrics": reaction_metrics,
         }
 
-        self.logger.debug("Network analysis completed")
+        self.logger.debug(
+            "Network analysis completed: %d senders, %d chats", len(sender_nodes), len(chat_nodes)
+        )
         return result
 
     def _create_bipartite_graph(self, data: pd.DataFrame) -> nx.Graph:
@@ -126,34 +135,43 @@ class NetworkAnalysis(AnalysisStrategy):
         -------
         nx.Graph
         Bipartite graph with senders (bipartite=0) and chats (bipartite=1), weighted edges,
-        and optional average message length attributes.
+        and average message length attributes.
 
         Notes
         -----
         Edge weights represent the number of messages between sender and chat.
-        If 'content' is present, average message length is added as an edge attribute.
+        Average message length is added as an edge attribute.
         """
         G: nx.Graph = nx.Graph()
 
+        # Create a copy to avoid modifying the original DataFrame
+        data_copy = data.copy()
+        
         # Add sender nodes
-        senders = data["sender"].unique()
+        senders = data_copy["sender"].unique()
         G.add_nodes_from(senders, bipartite=0, type="sender")
 
         # Add chat nodes
-        chats = data["chat_id"].unique()
+        chats = data_copy["chat_id"].unique()
         G.add_nodes_from(chats, bipartite=1, type="chat")
 
         # Add weighted edges
-        edge_weights = data.groupby(["sender", "chat_id"]).size().reset_index(name="weight")
+        edge_weights = data_copy.groupby(["sender", "chat_id"]).size().reset_index(name="weight")
         G.add_weighted_edges_from(edge_weights[["sender", "chat_id", "weight"]].to_numpy())
 
         # Add average message length
-        data["msg_length"] = data["content"].str.len()
-        avg_lengths = data.groupby(["sender", "chat_id"])["msg_length"].mean().reset_index()
+        data_copy["msg_length"] = data_copy["content"].str.len()
+        avg_lengths = data_copy.groupby(["sender", "chat_id"])["msg_length"].mean().reset_index()
         for row in avg_lengths.itertuples():
             if G.has_edge(row.sender, row.chat_id):
                 nx.set_edge_attributes(G, {(row.sender, row.chat_id): {"avg_length": row.msg_length}})
 
+        self.logger.debug(
+            "Created bipartite graph: %d senders, %d chats, %d edges",
+            len(senders),
+            len(chats),
+            G.number_of_edges(),
+        )
         return G
 
     def _compute_centrality_measures(self, G: nx.Graph, sender_nodes: set, chat_nodes: set) -> dict:
@@ -184,8 +202,10 @@ class NetworkAnalysis(AnalysisStrategy):
         if convergence fails.
         """
         if G.number_of_nodes() == 0:
+            self.logger.warning("Graph is empty, returning empty centrality metrics")
             return {"sender_centrality": {}, "chat_centrality": {}}
 
+        self.logger.debug("Starting centrality measures computation")
         degree_centrality = nx.degree_centrality(G)
         betweenness_centrality = nx.betweenness_centrality(G, weight="weight")
 
@@ -214,6 +234,11 @@ class NetworkAnalysis(AnalysisStrategy):
             metric: {n: values[n] for n in chat_nodes} for metric, values in centrality_measures.items()
         }
 
+        self.logger.debug(
+            "Centrality measures computed: %d senders, %d chats",
+            len(sender_centrality["degree"]),
+            len(chat_centrality["degree"]),
+        )
         return {"sender_centrality": sender_centrality, "chat_centrality": chat_centrality}
 
     def _identify_communities(self, sender_projection: nx.Graph) -> dict:
@@ -242,7 +267,7 @@ class NetworkAnalysis(AnalysisStrategy):
         """
         # Verify that the 'sender_projection' graph has edges
         if not sender_projection.number_of_edges():
-            self.logger.warning("Sender projection has no edges, skipping community detection.")
+            self.logger.warning("Sender projection has no edges, returning empty communities.")
             return {
                 "communities": {},
                 "community_metrics": {"num_communities": 0, "sizes": {}, "modularity": 0, "densities": {}},
@@ -251,18 +276,13 @@ class NetworkAnalysis(AnalysisStrategy):
         # Check for edge weights
         if not nx.get_edge_attributes(sender_projection, "weight"):
             self.logger.warning(
-                "Sender projection graph edges do not have 'weight' attribute. Leiden algorithm might not use weights."
+                "Sender projection graph edges do not have 'weight' attribute. Louvain algorithm might not use weights."
             )
 
         # Apply Louvain algorithm with weights
         partition = community_louvain.best_partition(sender_projection, weight="weight")
 
-        # Assign consecutive community IDs starting from 0
-        communities = {
-            node: community_id
-            for community_id, community in enumerate(partition)
-            for node in community
-        }
+        communities = {node: community_id for node, community_id in partition.items()}
 
         # Compute community metrics
         sizes = Counter(partition.values())
@@ -280,9 +300,12 @@ class NetworkAnalysis(AnalysisStrategy):
             "densities": densities,
         }
 
+        self.logger.debug("Detected %d communities with modularity: %.3f", num_communities, modularity)
         return {"communities": communities, "community_metrics": community_metrics}
 
-    def _calculate_influence_metrics(self, G: nx.Graph, sender_nodes: set[str]) -> dict[str, dict[str, dict[str, int]]]:
+    def _calculate_influence_metrics(
+        self, G: nx.Graph, sender_nodes: set[str]
+    ) -> dict[str, dict[str, dict[str, int]]]:
         """
         Calculate influence metrics for senders without temporal dependency.
 
@@ -306,12 +329,12 @@ class NetworkAnalysis(AnalysisStrategy):
         sender_influence = {
             sender: {
                 "total_messages": cast(int, G.degree(sender, weight="weight")),
-                "chats_participated": cast(int, G.degree(sender))
-
+                "chats_participated": cast(int, G.degree(sender)),
             }
             for sender in sender_nodes
         }
 
+        self.logger.debug("Influence metrics calculated for %d senders", len(sender_influence))
         return {"sender_influence": sender_influence}
 
     def _analyze_cross_chat_participation(self, data: pd.DataFrame) -> dict:
@@ -330,6 +353,7 @@ class NetworkAnalysis(AnalysisStrategy):
             - 'bridge_users': Mapping of senders to number of chats (for those in >1 chat).
             - 'chat_similarity': Mapping of chat pairs to Jaccard similarity of their senders.
         """
+        self.logger.debug("Analyzing cross-chat participation")
         participation = data.groupby(["sender", "chat_id"]).size().unstack(fill_value=0)
 
         chat_similarity = {}
@@ -345,6 +369,9 @@ class NetworkAnalysis(AnalysisStrategy):
         user_chat_counts = data.groupby("sender")["chat_id"].nunique().sort_values(ascending=False)
         bridge_users = user_chat_counts[user_chat_counts > 1].to_dict()
 
+        self.logger.debug(
+            "Found %d bridge users and %d chat similarity pairs", len(bridge_users), len(chat_similarity)
+        )
         return {"bridge_users": bridge_users, "chat_similarity": chat_similarity}
 
     def _create_reaction_graph(self, data: pd.DataFrame) -> nx.DiGraph:
@@ -372,16 +399,24 @@ class NetworkAnalysis(AnalysisStrategy):
             senders = set(data["sender"])
             reaction_graph.add_nodes_from(senders)
         else:
+            self.logger.warning("No 'sender' column, returning empty reaction graph")
             return reaction_graph  # Return empty graph if no senders
 
         # Check if 'reactions' column exists
         if "reactions" not in data.columns:
+            self.logger.warning(
+                "No 'reactions' column, returning graph with %d sender nodes",
+                reaction_graph.number_of_nodes(),
+            )
             return reaction_graph  # Return graph with only sender nodes if no reactions column
 
         # Filter data to only include rows with non-empty reactions
         data_with_reactions = data[data["reactions"].apply(lambda x: isinstance(x, list) and len(x) > 0)]
 
         if data_with_reactions.empty:
+            self.logger.warning(
+                "No valid reactions, returning graph with %d sender nodes", reaction_graph.number_of_nodes()
+            )
             return reaction_graph  # Return graph with no sender nodes if no valid reactions
 
         # Explode reactions and extract reactors
@@ -406,6 +441,11 @@ class NetworkAnalysis(AnalysisStrategy):
         for (reactor, sender), count in reaction_counts.items():
             reaction_graph.add_edge(reactor, sender, weight=count)
 
+        self.logger.debug(
+            "Created reaction graph: %d nodes, %d edges",
+            reaction_graph.number_of_nodes(),
+            reaction_graph.number_of_edges(),
+        )
         return reaction_graph
 
     def _compute_reaction_metrics(self, reaction_graph: nx.DiGraph) -> dict:
@@ -427,11 +467,14 @@ class NetworkAnalysis(AnalysisStrategy):
             Returns empty dicts if the graph has no edges (i.e., no reactions).
         """
         if reaction_graph.number_of_edges() == 0:
+            self.logger.warning("Reaction graph has no edges, returning empty metrics")
             return {"in_degree": {}, "out_degree": {}, "pagerank": {}}
 
+        self.logger.debug("Computing reaction metrics")
         in_degree = nx.in_degree_centrality(reaction_graph)
         out_degree = nx.out_degree_centrality(reaction_graph)
         pagerank = nx.pagerank(reaction_graph, weight="weight")
+        self.logger.debug("Reaction metrics computed: in_degree, out_degree, pagerank")
 
         return {"in_degree": in_degree, "out_degree": out_degree, "pagerank": pagerank}
 
@@ -458,28 +501,35 @@ class NetworkAnalysis(AnalysisStrategy):
         sender_centrality_df = pd.DataFrame(results["sender_centrality"]).T
         sender_centrality_df.index.name = "sender"
         sender_centrality_df.to_csv(strategy_dir / "sender_centrality.csv")
+        self.logger.debug("Saved sender_centrality.csv")
 
         # Chat centrality
         chat_centrality_df = pd.DataFrame(results["chat_centrality"]).T
         chat_centrality_df.index.name = "chat_id"
         chat_centrality_df.to_csv(strategy_dir / "chat_centrality.csv")
+        self.logger.debug("Saved chat_centrality.csv")
 
         # Community metrics
         with (strategy_dir / "community_metrics.json").open("w") as file:
             json.dump(results["community_metrics"], file)
+        self.logger.debug("Saved community_metrics.json")
 
         # Influence metrics
         pd.DataFrame(results["sender_influence"]).T.to_csv(strategy_dir / "sender_influence.csv")
+        self.logger.debug("Saved sender_influence.csv")
 
         # Cross-chat metrics
         pd.DataFrame.from_dict(
             results["cross_chat_metrics"]["bridge_users"], orient="index", columns=["chat_count"]
         ).to_csv(strategy_dir / "bridge_users.csv")
+        self.logger.debug("Saved bridge_users.csv")
         pd.DataFrame.from_dict(
             results["cross_chat_metrics"]["chat_similarity"], orient="index", columns=["similarity"]
         ).to_csv(strategy_dir / "chat_similarity.csv")
+        self.logger.debug("Saved chat_similarity.csv")
 
         # Save reaction metrics
         pd.DataFrame(results["reaction_metrics"]).T.to_csv(strategy_dir / "reaction_centrality.csv")
+        self.logger.debug("Saved reaction_centrality.csv")
 
         self.logger.info("Saved network analysis results to %s", strategy_dir)
