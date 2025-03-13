@@ -8,7 +8,7 @@ saving the results to a CSV file.
 import logging
 from pathlib import Path
 
-from insta_message_analyzer.analysis import ActivityAnalysis, AnalysisPipeline
+from insta_message_analyzer.analysis import ActivityAnalysis, AnalysisPipeline, NetworkAnalysis
 from insta_message_analyzer.data import MessageLoader, MessagePreprocessor
 from insta_message_analyzer.utils import get_logger, setup_logging
 from insta_message_analyzer.visualization import TimeSeriesPlotter
@@ -75,7 +75,7 @@ def main() -> None:
     logger.info("Saved processed messages to %s", raw_messages_out)
 
     logger.debug("Running analysis pipeline")
-    strategies = [ActivityAnalysis()]
+    strategies = [ActivityAnalysis(), NetworkAnalysis()]
     pipeline = AnalysisPipeline(strategies)
     try:
         results = pipeline.run_analysis(group_chat_messages)
