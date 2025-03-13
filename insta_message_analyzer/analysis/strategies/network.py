@@ -1,8 +1,8 @@
 import json
-from collections import defaultdict
+from collections import Counter
 from itertools import combinations
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import community as community_louvain
 import networkx as nx
@@ -83,15 +83,12 @@ class NetworkAnalysis(AnalysisStrategy):
         self.logger.debug("Computing centrality measures")
         centrality_metrics = self._compute_centrality_measures(G, sender_nodes, chat_nodes)
 
-        if sender_nodes:
-            sender_projection = nx.bipartite.weighted_projected_graph(G, sender_nodes)
-        else:
-            sender_projection = nx.Graph()
+        sender_projection = nx.bipartite.weighted_projected_graph(G, sender_nodes) if sender_nodes else nx.Graph()
 
         community_data = self._identify_communities(sender_projection)
 
         # Calculate influence metrics (timestamp dependency removed)
-        influence_metrics = self._calculate_influence_metrics(G)
+        influence_metrics = self._calculate_influence_metrics(G, sender_nodes)
 
         # Analyze cross-chat participation
         cross_chat_metrics = self._analyze_cross_chat_participation(data)
@@ -123,7 +120,7 @@ class NetworkAnalysis(AnalysisStrategy):
         Parameters
         ----------
         data : pd.DataFrame
-        DataFrame with 'sender', 'chat_id', and optionally 'content' columns.
+        DataFrame with 'sender', 'chat_id', and 'content' columns.
 
         Returns
         -------
@@ -148,10 +145,7 @@ class NetworkAnalysis(AnalysisStrategy):
 
         # Add weighted edges
         edge_weights = data.groupby(["sender", "chat_id"]).size().reset_index(name="weight")
-        for row in edge_weights.itertuples():
-            G.add_edge(
-                row.sender, row.chat_id, weight=row.weight
-            )  # NOTE: this can be vectorized #type: ignore[reportArgumentType]
+        G.add_weighted_edges_from(edge_weights[["sender", "chat_id", "weight"]].to_numpy())
 
         # Add average message length
         data["msg_length"] = data["content"].str.len()
@@ -263,25 +257,19 @@ class NetworkAnalysis(AnalysisStrategy):
         # Apply Louvain algorithm with weights
         partition = community_louvain.best_partition(sender_projection, weight="weight")
 
-        # Build communities list from partition
-        communities_dict = defaultdict(list)
-        for node, comm_id in partition.items():
-            communities_dict[comm_id].append(node)
-        communities_list = list(communities_dict.values())
-
         # Assign consecutive community IDs starting from 0
         communities = {
             node: community_id
-            for community_id, community in enumerate(communities_list)
+            for community_id, community in enumerate(partition)
             for node in community
         }
 
         # Compute community metrics
-        num_communities = len(communities_list)
-        sizes = {community_id: len(community) for community_id, community in enumerate(communities_list)}
+        sizes = Counter(partition.values())
+        num_communities = len(sizes)
         densities = {
             community_id: nx.density(sender_projection.subgraph(community))  # type: ignore[no-untyped-call]
-            for community_id, community in enumerate(communities_list)
+            for community_id, community in enumerate(partition)
         }
         modularity = community_louvain.modularity(partition, sender_projection, weight="weight")
 
@@ -294,41 +282,35 @@ class NetworkAnalysis(AnalysisStrategy):
 
         return {"communities": communities, "community_metrics": community_metrics}
 
-    def _calculate_influence_metrics(self, G: nx.Graph) -> dict:
+    def _calculate_influence_metrics(self, G: nx.Graph, sender_nodes: set[str]) -> dict[str, dict[str, dict[str, int]]]:
         """
         Calculate influence metrics for senders without temporal dependency.
 
         Parameters
         ----------
         G : nx.Graph
-            Bipartite graph of senders and chats.
+            Bipartite graph of senders and chats, where edges represent message activity
+            and have a 'weight' attribute for message counts.
+        sender_nodes : set[str]
+            Set of sender node identifiers (strings) to analyze.
 
         Returns
         -------
         dict
             Dictionary with key 'sender_influence', mapping sender nodes to:
-            - 'total_messages': Total number of messages sent.
-            - 'chats_participated': Number of chats participated in.
+            - 'total_messages': int
+                Total number of messages sent by the sender across all chats (weighted degree).
+            - 'chats_participated': int
+                Number of chats the sender participates in (unweighted degree).
         """
+        sender_influence = {
+            sender: {
+                "total_messages": cast(int, G.degree(sender, weight="weight")),
+                "chats_participated": cast(int, G.degree(sender))
 
-        def _get_weight(edge_data: dict[str, Any] | Any) -> float:
-            weight = edge_data.get("weight", 0) if isinstance(edge_data, dict) else 0
-            try:
-                return float(weight)
-            except (ValueError, TypeError):
-                return 0.0
-
-        sender_influence = {}
-
-        for sender in G.nodes():
-            sender_str: str = str(sender)
-            if G.nodes[sender_str].get("bipartite") == 0:
-                total_msgs = sum(_get_weight(G[sender_str][chat]) for chat in G.neighbors(sender_str))
-                num_chats = len(list(G.neighbors(sender)))
-                sender_influence[sender_str] = {
-                    "total_messages": total_msgs,
-                    "chats_participated": num_chats,
-                }
+            }
+            for sender in sender_nodes
+        }
 
         return {"sender_influence": sender_influence}
 

@@ -161,9 +161,10 @@ def test_calculate_influence_metrics(network_analysis, sample_data):
     """
     # Arrange: create graph from sample data
     graph = network_analysis._create_bipartite_graph(sample_data)
+    sender_nodes = {n for n, d in graph.nodes(data=True) if d["bipartite"] == 0}
     
     # Act: calculate influence metrics
-    result = network_analysis._calculate_influence_metrics(graph)
+    result = network_analysis._calculate_influence_metrics(graph, sender_nodes)
     
     # Expected results based on sample_data:
     expected_influence = {
@@ -182,7 +183,7 @@ def test_calculate_influence_metrics(network_analysis, sample_data):
     
     # Additional assertions for type consistency
     for sender, metrics in result["sender_influence"].items():
-        assert isinstance(metrics["total_messages"], float), "Total messages should be float"
+        assert isinstance(metrics["total_messages"], int), "Total messages should be int"
         assert isinstance(metrics["chats_participated"], int), "Chats participated should be int"
 
 # ---------------------------
@@ -263,11 +264,11 @@ def test_analyze(network_analysis, sample_data):
     )
     # Influence metrics
     influence = result["sender_influence"]
-    assert influence["user1"]["total_messages"] == 3.0, "user1 should have 3 messages"
+    assert influence["user1"]["total_messages"] == 3, "user1 should have 3 messages"
     assert influence["user1"]["chats_participated"] == 2, "user1 should participate in 2 chats"
-    assert influence["user2"]["total_messages"] == 1.0, "user2 should have 1 message"
+    assert influence["user2"]["total_messages"] == 1, "user2 should have 1 message"
     assert influence["user2"]["chats_participated"] == 1, "user2 should participate in 1 chat"
-    assert influence["user3"]["total_messages"] == 1.0, "user3 should have 1 message"
+    assert influence["user3"]["total_messages"] == 1, "user3 should have 1 message"
     assert influence["user3"]["chats_participated"] == 1, "user3 should participate in 1 chat"
 
 
