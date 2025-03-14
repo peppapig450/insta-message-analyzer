@@ -102,7 +102,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         Parameters
         ----------
         data : pd.DataFrame
-            DataFrame with 'timestamp', 'chat_id' (int), 'chat_name', and 'sender' columns.
+            DataFrame with 'timestamp', 'chat_id' (int), 'chat_name', 'reactions' and 'sender' columns.
 
         Returns
         -------

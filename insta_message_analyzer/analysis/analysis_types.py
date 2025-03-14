@@ -1,7 +1,8 @@
 """Type definitions for the Instagram Message Analyzer analysis module."""
 
-from typing import Literal, NewType, TypedDict
+from typing import Any, Literal, NewType, TypedDict
 
+import networkx as nx
 import pandas as pd
 
 # Base types and type aliases
@@ -135,3 +136,70 @@ class ActivityAnalysisResult(TypedDict):
     top_senders_week: TopSendersDataFrame
     chat_lifecycles: dict[ChatId, ChatLifecycle]
     chat_names: dict[ChatId, str]
+
+
+type CentralityDict = dict[str, float]
+"""Dictionary of centrality measures, with measure names (e.g., 'degree', 'betweenness') as keys and scores as values."""
+
+type InfluenceDict = dict[str, int]
+"""Dictionary of influence metrics, with metric names as keys and integer values (e.g., number of reactions received)."""
+
+
+class NetworkAnalysisResult(TypedDict):
+    """
+    Structure for the complete network analysis output.
+
+    All fields are required and populated by NetworkAnalysis, even in edge cases.
+    Derived from message data with 'chat_id' (ChatId), 'sender' (str), 'timestamp', etc.,
+    representing interactions in a social network context.
+
+    Attributes
+    ----------
+    bipartite_graph : nx.Graph
+        Bipartite graph where nodes are senders (str) and chats (ChatId), and edges represent
+        a sender's participation in a chat.
+    sender_centrality : dict[str, CentralityDict]
+        Centrality measures for each sender, such as degree or betweenness centrality,
+        with sender usernames as keys and dictionaries of measure names to scores as values.
+    chat_centrality : dict[ChatId, CentralityDict]
+        Centrality measures for each chat, with ChatId as keys and dictionaries of measure
+        names to scores as values.
+    communities : dict[str, int]
+        Community assignments for senders, where keys are sender usernames and values are
+        integer labels indicating the community they belong to, typically derived from the
+        sender projection.
+    community_metrics : dict[str, Any]
+        Metrics describing the sender communities, such as 'num_communities' (int) or
+        'modularity' (float). The exact keys and value types depend on the community
+        detection algorithm used.
+    sender_projection : nx.Graph
+        Projection of the bipartite graph onto senders, where nodes are senders (str) and
+        edges connect senders who participate in the same chats, possibly weighted by
+        shared activity.
+    sender_influence : dict[str, InfluenceDict]
+        Influence metrics for each sender, such as the number of reactions or mentions
+        received, with sender usernames as keys and dictionaries of metric names to
+        integer values.
+    cross_chat_metrics : dict[str, Any]
+        Metrics describing interactions across different chats, such as the number of
+        senders active in multiple chats or cross-chat message frequency. The exact keys
+        and value types depend on the analysis.
+    reaction_graph : nx.DiGraph
+        Directed graph where nodes are senders (str), and directed edges represent reactions
+        (e.g., likes, replies) from one sender to another's message.
+    reaction_metrics : dict[str, Any]
+        Metrics derived from the reaction graph, such as 'in_degree' (reactions received)
+        or 'out_degree' (reactions given) per sender. The exact keys and value types depend
+        on the reaction analysis.
+    """
+
+    bipartite_graph: nx.Graph
+    sender_centrality: dict[str, CentralityDict]
+    chat_centrality: dict[ChatId, CentralityDict]
+    communities: dict[str, int]
+    community_metrics: dict[str, Any]
+    sender_projection: nx.Graph
+    sender_influence: dict[str, InfluenceDict]
+    cross_chat_metrics: dict[str, Any]
+    reaction_graph: nx.DiGraph
+    reaction_metrics: dict[str, Any]
