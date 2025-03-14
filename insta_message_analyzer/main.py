@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 
 def main() -> None:
     """
-    Main function to load, process, analyze, and visualize Instagram message data.
+    Load, process, analyze, and visualize Instagram message data.
 
     This function resolves the project root, sets up input and output directories,
     loads raw message data, processes it into a DataFrame, runs analysis strategies,
@@ -55,26 +55,30 @@ def main() -> None:
     logger.debug("Preprocessing raw data")
     try:
         preprocessor = MessagePreprocessor(raw_data)
-        df = preprocessor.get_processed_data
-        df = df[df["chat_type"] == "group"]
-        logger.debug("Processed data shape: %s, columns: %s", df.shape, df.columns.tolist())
-        if df.empty:
+        preprocessed_messages = preprocessor.get_processed_data
+        group_chat_messages = preprocessed_messages[preprocessed_messages["chat_type"] == "group"]
+        logger.debug(
+            "Processed data shape: %s, columns: %s",
+            group_chat_messages.shape,
+            group_chat_messages.columns.tolist(),
+        )
+        if group_chat_messages.empty:
             logger.warning("Processed DataFrame is empty; analysis will produce no results")
-        if "timestamp" not in df.columns:
+        if "timestamp" not in group_chat_messages.columns:
             logger.error("Processed DataFrame lacks 'timestamp' column; analysis will fail")
     except Exception:
         logger.exception("Failed to preprocess data: %s")
         raise
 
     raw_messages_out = output_dir / "messages_raw.csv"
-    df.to_csv(raw_messages_out, index=False)
+    group_chat_messages.to_csv(raw_messages_out, index=False)
     logger.info("Saved processed messages to %s", raw_messages_out)
 
     logger.debug("Running analysis pipeline")
     strategies = [ActivityAnalysis()]
     pipeline = AnalysisPipeline(strategies)
     try:
-        results = pipeline.run_analysis(df)
+        results = pipeline.run_analysis(group_chat_messages)
         logger.debug(
             "Analysis results: %s",
             {

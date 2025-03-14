@@ -4,14 +4,14 @@ from typing import TypeGuard
 
 import pandas as pd
 
-from .types import (
+from .analysis_types import (
     ActivityAnalysisResult,
     ChatLifecycle,
     TimeSeriesDict,
 )
 
 
-def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult]:
+def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult]:  # noqa: PLR0911, PLR0912
     """
     Type guard to verify if an object conforms to the ActivityAnalysisResult structure.
 
@@ -67,7 +67,7 @@ def is_activity_analysis_result(obj: object) -> TypeGuard[ActivityAnalysisResult
     if not isinstance(obj["bursts"], pd.DataFrame):
         return False
     if not obj["bursts"].empty and not {"start", "end", "message_count"}.issubset(obj["bursts"].columns):
-        return False # Ensure required columns if not empty
+        return False  # Ensure required columns if not empty
 
     # per_chat_bursts: dict with ChatId keys and DataFrame values
     if not isinstance(obj["per_chat_bursts"], dict) or not all(

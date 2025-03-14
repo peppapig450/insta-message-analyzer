@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
-from ...utils.logging import get_logger
+from ...utils.setup_logging import get_logger
+from ..analysis_types import ActivityAnalysisResult, ChatId, ChatLifecycle, TimeSeriesDict, TimeSeriesKey
 from ..protocol import AnalysisStrategy
-from ..types import ActivityAnalysisResult, ChatId, ChatLifecycle, TimeSeriesDict, TimeSeriesKey
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -45,6 +45,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         burst_percentile: float = 95.0,
         granularity: str = "D",
         top_n_senders: int = 5,
+        *,
         analyze_overall: bool = True,
     ) -> None:
         """Initialize the ActivityAnalysis strategy.
@@ -92,7 +93,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         """
         return self._name
 
-    def analyze(self, data: pd.DataFrame) -> ActivityAnalysisResult:
+    def analyze(self, data: pd.DataFrame) -> ActivityAnalysisResult:  # noqa: PLR0915 #TODO: refactor this function to be simpler (53 branches is too many)
         """Analyze temporal activity patterns in the provided Instagram message data.
 
         Computes daily message counts, rolling averages, day-of-week and hour-of-day
@@ -122,27 +123,30 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
 
         if not pd.api.types.is_integer_dtype(data["chat_id"]):
             self.logger.error("chat_id column is not of integer type: %s", data["chat_id"].dtype)
-            raise TypeError("chat_id must be an integer type")
+            error_msg = "chat_id must be an integer type"
+            raise TypeError(error_msg)
 
-        df = data.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
-        dropped_rows = len(df) - len(df.dropna(subset=["timestamp"]))
-        df = df.dropna(subset=["timestamp"])
-        self.logger.debug("Dropped %d rows with invalid timestamps, remaining: %d", dropped_rows, len(df))
-        if df.empty:
+        message_data = data.copy()
+        message_data["timestamp"] = pd.to_datetime(message_data["timestamp"], utc=True, errors="coerce")
+        dropped_rows = len(message_data) - len(message_data.dropna(subset=["timestamp"]))
+        message_data = message_data.dropna(subset=["timestamp"])
+        self.logger.debug(
+            "Dropped %d rows with invalid timestamps, remaining: %d", dropped_rows, len(message_data)
+        )
+        if message_data.empty:
             self.logger.warning("DataFrame is empty after processing")
             return self._empty_result()
 
         # Overall analysis
         overall_time_series = (
-            self._compute_time_series(df) if self.analyze_overall else self._empty_time_series()
+            self._compute_time_series(message_data) if self.analyze_overall else self._empty_time_series()
         )
         overall_bursts = (
             self._compute_bursts(overall_time_series["counts"], self.granularity)
             if self.analyze_overall
             else pd.DataFrame()
         )
-        total_messages = len(df)
+        total_messages = len(message_data)
 
         # Per chat analysis
         per_chat: dict[ChatId, TimeSeriesDict] = {}
@@ -151,7 +155,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         top_senders_per_chat: dict[ChatId, pd.Series] = {}
         chat_names: dict[ChatId, str] = {}
 
-        for chat_id, group in df.groupby("chat_id"):
+        for chat_id, group in message_data.groupby("chat_id"):
             chat_id = cast(int, chat_id)
             chat_id_int: ChatId = ChatId(chat_id)
             chat_names[chat_id_int] = group["chat_name"].iloc[0]  # Assume consistent chat_name within group
@@ -169,7 +173,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
                 else "",
                 "last_message": timestamps.iloc[-1],
                 "avg_response_time": response_times.mean() if not response_times.empty else 0.0,
-                "message_count": len(group)
+                "message_count": len(group),
             }
 
             # Top senders per chat
@@ -185,17 +189,17 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
             )
 
         # Top senders overall (day and week)
-        df["date"] = df["timestamp"].dt.floor("D")
-        df["week"] = df["timestamp"].dt.to_period("W").dt.start_time
+        message_data["date"] = message_data["timestamp"].dt.floor("D")
+        message_data["week"] = message_data["timestamp"].dt.to_period("W").dt.start_time
         top_senders_day = (
-            df.groupby("date")["sender"]  # noqa: PD010
+            message_data.groupby("date")["sender"]  # noqa: PD010
             .value_counts()
             .groupby("date")
             .head(self.top_n_senders)
             .unstack(fill_value=0)
         )
         top_senders_week = (
-            df.groupby("week")["sender"]  # noqa: PD010
+            message_data.groupby("week")["sender"]  # noqa: PD010
             .value_counts()
             .groupby("week")
             .head(self.top_n_senders)
@@ -209,7 +213,7 @@ class ActivityAnalysis(AnalysisStrategy[ActivityAnalysisResult]):
         active_hours_per_user: dict[str, pd.Series] = {}
         message_count_per_user: dict[str, int] = {}
         hours = range(24)
-        for sender, group in df.groupby("sender"):
+        for sender, group in message_data.groupby("sender"):
             hour_counts = (
                 group["timestamp"].dt.hour.value_counts().reindex(hours, fill_value=0).sort_index()
             )

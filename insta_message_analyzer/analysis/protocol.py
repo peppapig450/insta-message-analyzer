@@ -18,7 +18,8 @@ from typing import Generic, Protocol, TypeVar
 import pandas as pd
 
 # Define a generic type variable for the result
-R = TypeVar("R", bound=Mapping) # Constrain to dict-like types (e.g., TypedDict or dict)
+R = TypeVar("R", bound=Mapping)  # Constrain to dict-like types (e.g., TypedDict or dict)
+
 
 class AnalysisStrategy(Protocol, Generic[R]):
     """

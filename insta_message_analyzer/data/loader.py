@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ..utils.logging import get_logger
+from ..utils.setup_logging import get_logger
 
 
 class MessageLoader:

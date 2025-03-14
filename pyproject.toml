@@ -7,7 +7,7 @@ dependencies = [
   "emoji (>=2.14.1,<3.0.0)",
   "plotly (>=6.0.0,<7.0.0)",
 ]
-description = ""
+description = "A Python tool for analyzing Instagram message data, providing temporal and network analysis to analyze and visualize social interaction patterns."
 name = "insta-message-analyzer"
 readme = "README.md"
 requires-python = ">=3.12,<=3.13"
@@ -16,9 +16,6 @@ version = "0.1.0"
 [build-system]
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core>=2.0.0,<3.0.0"]
-
-[project.scripts]
-analyze = "insta_message_analyzer.main"
 
 [project.optional-dependencies]
 dev = [
@@ -29,6 +26,8 @@ dev = [
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.15.0"
 pandas-stubs = "^2.2.3.241126"
+pre-commit = "^4.1.0"
+pytest = "^8.3.5"
 ruff = "^0.9.9"
 
 [tool.ruff]
@@ -128,13 +127,14 @@ line-ending = "auto"
 [tool.mypy]
 check_untyped_defs = true # Check untyped function bodies
 disallow_any_generics = false # Allow generic types (useful for pandas/numpy)
-explicit_package_bases = true 
+exclude = ['tests/']
+explicit_package_bases = true
 follow_imports = "normal" # Default, but explicit for clarity
 ignore_missing_imports = false # Disable to enforce stubs, with exceptions below
-namespace_packages = true 
-packages = ["insta_message_analyzer"] 
-python_version = "3.12" 
-strict = true 
+namespace_packages = true
+packages = ["insta_message_analyzer"]
+python_version = "3.12"
+strict = true
 warn_no_return = true # Ensure all paths return a value
 warn_unused_configs = true # Catch unused settings
 warn_unused_ignores = true # Highlight unnecessary # type: ignore

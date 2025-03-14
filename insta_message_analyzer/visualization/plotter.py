@@ -17,12 +17,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from ..analysis.validation import is_activity_analysis_result, is_time_series_dict
-from ..utils.logging import get_logger
+from ..utils.setup_logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ..analysis.types import ActivityAnalysisResult, TimeSeriesDict
+    from ..analysis.analysis_types import ActivityAnalysisResult, TimeSeriesDict
 
 
 class TimeSeriesPlotter:
@@ -699,12 +699,14 @@ class TimeSeriesPlotter:
             # NOTE: When optimizing the pandas operations can be chained
 
             # Create DataFrame with chat IDs as columns and senders as index
-            df = pd.DataFrame({str(chat_id): series for chat_id, series in top_senders.items()})
+            chat_sender_counts = pd.DataFrame(
+                {str(chat_id): series for chat_id, series in top_senders.items()}
+            )
 
             # Melt the DataFrame
-            sender_df = df.reset_index().melt(
+            sender_df = chat_sender_counts.reset_index().melt(
                 id_vars=["sender"],
-                value_vars=df.columns.tolist(),
+                value_vars=chat_sender_counts.columns.tolist(),
                 var_name="ChatID",
                 value_name="Messages",
             )
@@ -821,7 +823,7 @@ class TimeSeriesPlotter:
         activity_results : ActivityAnalysisResult
             Analysis results containing 'active_hours_per_user' (dict of user hourly activity)
             and 'message_count_per_user' (dict of user message counts).
-        
+
         Notes
         -----
         - Skips plotting if 'active_hours_per_user' is empty, logging a warning.
@@ -1220,7 +1222,7 @@ class TimeSeriesPlotter:
                 self.logger.exception(
                     "%s, got type: %s, value: %r", error_msg, type(fig.data).__name__, fig.data
                 )
-                raise TypeError(error_msg)
+                raise TypeError(error_msg)  # noqa: TRY301 #TODO: properly resolve this
 
             # Calculate maximum message counts for scaling
             # Overall max for "All Weeks"
@@ -1300,7 +1302,7 @@ class TimeSeriesPlotter:
         """
         Generate and save an interactive bar chart of chat lifecycle durations.
 
-        Visualizes each chat’s duration as horizontal bars along a timeline, with start dates
+        Visualizes each chat's duration as horizontal bars along a timeline, with start dates
         on the x-axis, chat names on the y-axis, and optional peak activity markers.
 
         Parameters
