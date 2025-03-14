@@ -9,9 +9,9 @@ import networkx as nx
 import pandas as pd
 from scipy.sparse.linalg import ArpackNoConvergence
 
+from insta_message_analyzer.analysis.analysis_types import NetworkAnalysisResult
 from insta_message_analyzer.analysis.protocol import AnalysisStrategy
-from insta_message_analyzer.analysis.types import NetworkAnalysisResult
-from insta_message_analyzer.utils.logging import get_logger
+from insta_message_analyzer.utils.setup_logging import get_logger
 
 
 class NetworkAnalysis(AnalysisStrategy):
@@ -282,7 +282,7 @@ class NetworkAnalysis(AnalysisStrategy):
         # Apply Louvain algorithm with weights
         partition = community_louvain.best_partition(sender_projection, weight="weight")
 
-        communities = {node: community_id for node, community_id in partition.items()}
+        communities = dict(partition.items())
 
         # Compute community metrics
         sizes = Counter(partition.values())
@@ -354,7 +354,6 @@ class NetworkAnalysis(AnalysisStrategy):
             - 'chat_similarity': Mapping of chat pairs to Jaccard similarity of their senders.
         """
         self.logger.debug("Analyzing cross-chat participation")
-        participation = data.groupby(["sender", "chat_id"]).size().unstack(fill_value=0)
 
         chat_similarity = {}
         chats = data["chat_id"].unique()
@@ -392,7 +391,7 @@ class NetworkAnalysis(AnalysisStrategy):
             with sender nodes (if available).
         """
         # Initialize directed graph
-        reaction_graph = nx.DiGraph() #type: ignore[var-annotated]
+        reaction_graph = nx.DiGraph()  # type: ignore[var-annotated]
 
         # Add sender nodes if 'sender' column exists
         if "sender" in data.columns:

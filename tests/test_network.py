@@ -4,7 +4,7 @@ import networkx as nx
 from unittest.mock import Mock
 
 from insta_message_analyzer.analysis.strategies.network import NetworkAnalysis
-from insta_message_analyzer.analysis.types import NetworkAnalysisResult
+from insta_message_analyzer.analysis.analysis_types import NetworkAnalysisResult
 
 # ---------------------------
 # Fixtures for sample data

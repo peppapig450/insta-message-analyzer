@@ -116,6 +116,9 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 # Specify the docstring convention
 convention = "numpy"
 
+[tool.ruff.lint.per-file-ignores]
+"insta_message_analyzer/analysis/strategies/network.py" = ["N803", "N806"]
+
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
 quote-style = "double"
