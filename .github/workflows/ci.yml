@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+
+jobs:
+  test-and-lint:
+    uses: ./.github/workflows/test-lint.yml
+    with:
+      python-versions: '["3.12","3.13"]'
+
+  auto-approve:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    if: >
+      github.actor == 'dependabot[bot]' &&
+      needs.test-and-lint.result == 'success'
+    steps:
+      - name: Auto-approve Dependabot PR
+        uses: hmarr/auto-approve-action@v2.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
