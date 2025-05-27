@@ -1,7 +1,16 @@
 [project]
+name = "insta-message-analyzer"
+version = "0.1.0"
+description = "A Python tool for analyzing Instagram message data, providing temporal and network analysis to analyze and visualize social interaction patterns."
+readme = "README.md"
+requires-python = ">=3.12,<=3.14"
+license = { file = "LICENSE" }
 authors = [
-  {name = "peppapig450", email = "peppapig450@pm.me"},
+  {name = "Nick (peppapig450)", email = "peppapig450@pm.me"},
 ]
+dynamic = [ "classifiers" ]
+keywords = ["instagram", "analysis", "network", "social", "messaging", "data-analysis"]
+
 dependencies = [
   "pandas (>=2.2.3,<3.0.0)",
   "emoji (>=2.14.1,<3.0.0)",
@@ -10,20 +19,32 @@ dependencies = [
   "cdlib (>=0.4.0,<0.5.0)",
   "python-louvain (>=0.16,<0.17)",
 ]
-description = "A Python tool for analyzing Instagram message data, providing temporal and network analysis to analyze and visualize social interaction patterns."
-name = "insta-message-analyzer"
-readme = "README.md"
-requires-python = ">=3.12,<=3.13"
-version = "0.1.0"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 
-[project.optional-dependencies]
-dev = [
-  "matplotlib",
-  "seaborn",
+[project.urls]
+homepage = "https://github.com/peppapig450/insta-message-analyzer"
+repository = "https://github.com/peppapig450/insta-message-analyzer"
+documentation = "https://github.com/peppapig450/insta-message-analyzer/README.md"
+"Bug Tracker" = "https://github.com/peppapig450/insta-message-analyzer/issues"
+
+[project.scripts]
+insta-analyze = "insta_message_analyzer.main:main"
+
+[tool.poetry]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: Scientific/Engineering :: Visualization",
+  "Operating System :: OS Independent",
+]
+packages = [
+  { "include" = "insta_message_analyzer" },
 ]
 
 [tool.poetry.group.dev.dependencies]
@@ -33,6 +54,7 @@ pre-commit = "^4.1.0"
 ruff = "^0.9.9"
 types-networkx = "^3.4.2.20250304"
 pytest = "^8.3.5"
+twine = "^6.1.0"
 
 [tool.ruff]
 exclude = [

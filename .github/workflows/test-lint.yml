@@ -1,43 +1,35 @@
-name: CI for Pull Requests
+name: Test & Lint
 
-# Trigger the workflow on pull requests and pushes to main branch
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of Python versions'
+        required: false
+        default: '["3.12"]'
+        type: string
 
-# Define the jobs
 jobs:
   test-and-lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"] # Test across supported Python versions
-      fail-fast: false # Continue testing other versions even if one fails
+        python-version: ${{ fromJson(inputs.python-versions) }}
+      fail-fast: false 
 
     steps:
-      # Checkout the repository code
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-        # Install Poetry manually
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 - --version 2.1.1
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # Set up Python
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      # Cache Poetry dependencies
-      - name: Cache Poetry dependencies
-        id: cache
+      - id: cache
         uses: actions/cache@v4
         with:
           path: .venv
@@ -51,22 +43,18 @@ jobs:
         run: |
           poetry install --no-interaction --with dev
 
-      # Run Ruff for linting
       - name: Run Ruff linting
         run: |
           poetry run ruff check .
 
-      # Run Ruff for formatting check
       - name: Check formatting with Ruff
         run: |
           poetry run ruff format . --check
 
-      # Run MyPy for type checking
       - name: Run MyPy
         run: |
           poetry run mypy .
 
-      # Run tests with Pytest
       - name: Run Pytest
         run: |
           poetry run pytest
