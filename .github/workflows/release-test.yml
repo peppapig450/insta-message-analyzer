@@ -1,0 +1,44 @@
+name: Release to TestPyPI
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*-test"
+
+jobs:
+  test-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry install --no-interaction
+
+      - name: Build package
+        run: |
+          poetry build
+
+      - name: Verify build with Twine
+        run: |
+          poetry run twine check dist/*
+
+      - name: Publish to TestPyPI
+        env:
+          POETRY_PYPI_TOKEN_TESTPYPI: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          poetry config repositories.test-pypi https://test.pypi.org/legacy/
+          poetry publish --no-interaction --repository test-pypi \
+            --username __token__ --password "$POETRY_PYPI_TOKEN_TESTPYPI"
